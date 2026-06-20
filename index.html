@@ -11,7 +11,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
 <meta name="apple-mobile-web-app-title" content="Missa ST" />
-<script src="https://cdn.tailwindcss.com"></script>
+<link rel="stylesheet" href="vendor/tailwind.css?v=8" />
 <style>
   html,body,#root{height:100%}
   body{margin:0;background:#120c1e;color:#f3eefb;font-family:system-ui,sans-serif}
@@ -24,10 +24,15 @@
 </head>
 <body>
 <div id="root"><div class="boot">Carregando o repertório…</div></div>
-<script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
-<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
-<script src="https://unpkg.com/@supabase/supabase-js@2"></script>
-<script src="config.js"></script>
-<script src="app.js?v=7"></script>
+<script>
+window.__bootFail=function(){var r=document.getElementById('root');if(!r||window.__booted)return;r.innerHTML='<div style="padding:30px 20px;text-align:center;font-family:system-ui,sans-serif"><div style="background:#fff;border-radius:16px;padding:10px;display:inline-block;margin-bottom:14px"><img src="church.png" alt="" style="max-width:220px;width:58vw"></div><p style="color:#f4c95d;font-weight:700;font-size:17px;margin:0 0 8px">Não consegui carregar o app</p><p style="color:#a99ec4;font-size:14px;line-height:1.5;margin:0 0 6px">Verifique sua conexão com a internet e recarregue a página.</p><p style="color:#a99ec4;font-size:13px;line-height:1.5;margin:0">Se você abriu pelo navegador interno do WhatsApp/Instagram, toque em ••• e escolha <b>Abrir no Chrome</b> ou <b>Safari</b>.</p></div>';};
+window.addEventListener('error',function(e){if(!window.__booted&&e&&String(e.filename||'').indexOf('/vendor/')>=0)window.__bootFail();},true);
+</script>
+<script src="vendor/react.production.min.js?v=8" onerror="window.__bootFail()"></script>
+<script src="vendor/react-dom.production.min.js?v=8" onerror="window.__bootFail()"></script>
+<script src="vendor/supabase.js?v=8" onerror="window.__bootFail()"></script>
+<script src="config.js?v=8"></script>
+<script src="app.js?v=8"></script>
+<script>setTimeout(function(){if(document.querySelector('#root .boot'))window.__bootFail();},9000);</script>
 </body>
 </html>
