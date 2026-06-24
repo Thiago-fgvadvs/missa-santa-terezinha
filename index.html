@@ -27,6 +27,17 @@
   .sticky.top-0{padding-top:calc(1rem + env(safe-area-inset-top)) !important}
   .fixed.inset-0{padding-top:env(safe-area-inset-top)}
   .fixed.bottom-0{padding-bottom:env(safe-area-inset-bottom)}
+  #printroot{display:none}
+  @media print{
+    body.printing #root{display:none!important}
+    body.printing #printroot{display:block!important;color:#000;padding:10px}
+    #printroot .phead{font-weight:700;margin-bottom:10px;font-family:system-ui,sans-serif}
+    #printroot h2{font-size:13pt;margin:14px 0 4px;font-family:system-ui,sans-serif}
+    #printroot .tk{font-weight:400;font-size:10pt;color:#444}
+    #printroot pre{white-space:pre;font-family:ui-monospace,Menlo,monospace;font-size:10pt;line-height:1.35;margin:0}
+    #printroot .pdfnote{color:#555;font-style:italic}
+    #printroot section{page-break-after:always}
+  }
 </style>
 </head>
 <body>
@@ -39,7 +50,7 @@ window.addEventListener('error',function(e){if(!window.__booted&&e&&String(e.fil
 <script src="vendor/react-dom.production.min.js?v=8" onerror="window.__bootFail()"></script>
 <script src="vendor/supabase.js?v=8" onerror="window.__bootFail()"></script>
 <script src="config.js?v=8"></script>
-<script src="app.js?v=13"></script>
+<script src="app.js?v=14"></script>
 <script>setTimeout(function(){if(document.querySelector('#root .boot'))window.__bootFail();},9000);</script>
 </body>
 </html>
