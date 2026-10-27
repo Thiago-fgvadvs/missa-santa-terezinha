@@ -113,13 +113,14 @@ function App() {
   const [show, setShow] = useState(null); // { ids:[...], i } modo show
   const [editMass, setEditMass] = useState(null); // "data|slot"
   const [viewer, setViewer] = useState(null);
-  const [video, setVideo] = useState(null);
+  const [media, setMedia] = useState(null); // { kind: "yt"|"sp", url, title } mini player flutuante
   const [editSong, setEditSong] = useState(null);
   const [hasPin, setHasPin] = useState(true);
   const [editor, setEditor] = useState(() => !!TOK.get());
   const [lockOpen, setLockOpen] = useState(false);
   const [saveErr, setSaveErr] = useState("");
   const saveT = useRef({});
+  const navRef = useRef(null);
 
   const loadAll = useCallback(async () => {
     const [o, a, t, m, st, sv] = await Promise.all([S.get("mt_over"), S.get("mt_added"), S.get("mt_teams"), S.get("mt_masses"), S.get("mt_settings"), S.get("mt_seedV")]);
@@ -162,6 +163,12 @@ function App() {
   }, [over, added]);
   const songById = useMemo(() => { const m = {}; songs.forEach(s => m[s.id] = s); return m; }, [songs]);
   const openSong = (id) => { const s = songById[id]; if (!s) return; if (s.cifra) setPlaying(id); else if (s.u) setViewer({ url: s.u, title: (s.n != null ? s.n + " · " : "") + s.t }); else setPlaying(id); };
+  // Toca YouTube/Spotify no mini player e abre a cifra junto (se ainda não estiver aberta)
+  const openMedia = (s, kind) => {
+    const url = kind === "sp" ? s.sp : s.yt; if (!url) return;
+    setMedia({ kind, url, title: (s.n != null ? s.n + " · " : "") + s.t });
+    if (!show && playing !== s.id) openSong(s.id);
+  };
   const openShow = (ids, i) => { const valid = (ids || []).filter(id => songById[id]); if (!valid.length) return; setShow({ ids: valid, i: Math.max(0, Math.min(i || 0, valid.length - 1)) }); };
 
   const updateSong = (id, patch) => {
@@ -209,14 +216,14 @@ function App() {
       </div>
 
       {saveErr ? <div role="alert" style={{ background: C.danger, color: "#2a0610" }} className="px-4 py-2 text-sm flex items-center gap-2 sticky top-0 z-30"><span>{saveErr}</span><button onClick={() => setSaveErr("")} aria-label="Fechar aviso" style={{ marginLeft: "auto" }}><X size={16} /></button></div> : null}
-      <div className="p-3 pb-24 max-w-2xl mx-auto">
-        {screen === "repertorio" && <Repertorio songs={songs} onPlay={openSong} onAdd={addSong} onEdit={(s)=>setEditSong(s)} onVideo={(s)=>setVideo({url:s.yt,title:(s.n!=null?s.n+" · ":"")+s.t})} editor={editor} />}
+      <div className="p-3 max-w-2xl mx-auto" style={{ paddingBottom: "calc(6rem + var(--mini-h, 0px))" }}>
+        {screen === "repertorio" && <Repertorio songs={songs} onPlay={openSong} onAdd={addSong} onEdit={(s)=>setEditSong(s)} onMedia={openMedia} editor={editor} />}
         {screen === "missas" && <Missas masses={masses} teams={teams} songById={songById} onOpen={(k)=>setEditMass(k)} />}
         {screen === "equipes" && <Equipes teams={teams} saveTeams={saveTeams} masses={masses} editor={editor} onOpenLock={()=>setLockOpen(true)} />}
         {screen === "ajustes" && <Ajustes settings={settings} saveSettings={saveSettings} songs={songs} editor={editor} hasPin={hasPin} onLock={lock} onOpenLock={()=>setLockOpen(true)} changePin={changePin} />}
       </div>
 
-      <nav style={{ background: C.card, borderTop: `1px solid ${C.line}` }} className="fixed bottom-0 left-0 right-0 z-20">
+      <nav ref={navRef} style={{ background: C.card, borderTop: `1px solid ${C.line}` }} className="fixed bottom-0 left-0 right-0 z-20">
         <div className="max-w-2xl mx-auto grid grid-cols-4">
           {[
             { k: "repertorio", ic: Music, lb: "Repertório" },
@@ -231,18 +238,18 @@ function App() {
         </div>
       </nav>
 
-      {(playing || show) && <Player song={show ? songById[show.ids[show.i]] : songById[playing]} playlist={show ? show.ids : null} index={show ? show.i : 0} onNav={(ni)=> setShow(sh => sh ? { ...sh, i: Math.max(0, Math.min(ni, sh.ids.length - 1)) } : sh)} songById={songById} font={font} setFont={setFont} settings={settings} saveSettings={saveSettings} updateSong={updateSong} openViewer={(u,t)=>setViewer({url:u,title:t})} editor={editor} onClose={() => { if (show) setShow(null); else setPlaying(null); }} />}
+      {(playing || show) && <Player song={show ? songById[show.ids[show.i]] : songById[playing]} playlist={show ? show.ids : null} index={show ? show.i : 0} onNav={(ni)=> setShow(sh => sh ? { ...sh, i: Math.max(0, Math.min(ni, sh.ids.length - 1)) } : sh)} songById={songById} font={font} setFont={setFont} onMedia={openMedia} settings={settings} saveSettings={saveSettings} updateSong={updateSong} openViewer={(u,t)=>setViewer({url:u,title:t})} editor={editor} onClose={() => { if (show) setShow(null); else setPlaying(null); }} />}
       {viewer && <PdfViewer url={viewer.url} title={viewer.title} onClose={() => setViewer(null)} />}
-      {video && <VideoViewer url={video.url} title={video.title} onClose={() => setVideo(null)} />}
       {editSong && <AddSong initial={editSong} onClose={() => setEditSong(null)} onSave={(d) => { updateSong(editSong.id, d); setEditSong(null); }} />}
+      {media && <MiniPlayer media={media} overlay={!!(playing || show || viewer || editMass)} navRef={navRef} onClose={() => setMedia(null)} />}
       {lockOpen && <LockModal hasPin={hasPin} onClose={() => setLockOpen(false)} onSubmit={(v) => unlock(v)} />}
-      {editMass && <MassEditor mkey={editMass} masses={masses} saveMasses={saveMasses} teams={teams} songs={songs} songById={songById} onPlay={openSong} onShow={openShow} onVideo={(s)=>setVideo({url:s.yt,title:s.t})} onEdit={(s)=>setEditSong(s)} editor={editor} onClose={() => setEditMass(null)} />}
+      {editMass && <MassEditor mkey={editMass} masses={masses} saveMasses={saveMasses} teams={teams} songs={songs} songById={songById} onPlay={openSong} onShow={openShow} onMedia={openMedia} onEdit={(s)=>setEditSong(s)} editor={editor} onClose={() => setEditMass(null)} />}
     </div>
   );
 }
 
 // ====================== Repertório ======================
-function Repertorio({ songs, onPlay, onAdd, onEdit, onVideo, editor }) {
+function Repertorio({ songs, onPlay, onAdd, onEdit, onMedia, editor }) {
   const [q, setQ] = useState("");
   const [mom, setMom] = useState("Todos");
   const [fonte, setFonte] = useState("Todas");
@@ -290,14 +297,14 @@ function Repertorio({ songs, onPlay, onAdd, onEdit, onVideo, editor }) {
       </div>
       <p className="text-xs mb-2" style={{ color: C.mut }}>{filtered.length} resultado(s){filtered.length === 400 ? "+ (refine a busca)" : ""}</p>
       <div className="space-y-2">
-        {filtered.map(s => <SongRow key={s.id} s={s} onPlay={onPlay} onVideo={onVideo} onEdit={onEdit} editor={editor} />)}
+        {filtered.map(s => <SongRow key={s.id} s={s} onPlay={onPlay} onMedia={onMedia} onEdit={onEdit} editor={editor} />)}
       </div>
       {adding && <AddSong onClose={() => setAdding(false)} onSave={(d) => { onAdd(d); setAdding(false); }} />}
     </div>
   );
 }
 
-function SongRow({ s, onPlay, onVideo, onEdit, editor }) {
+function SongRow({ s, onPlay, onMedia, onEdit, editor }) {
   return (
     <div style={{ background: C.card, border: `1px solid ${C.line}` }} className="w-full p-3 rounded-xl flex items-center gap-2">
       <button onClick={() => onPlay(s.id)} className="flex items-center gap-3 min-w-0 flex-1 text-left active:opacity-70">
@@ -312,8 +319,8 @@ function SongRow({ s, onPlay, onVideo, onEdit, editor }) {
           </div>
         </div>
       </button>
-      {s.yt ? <button onClick={() => onVideo(s)} title="Assistir vídeo" style={{ background: C.card2, color: C.danger }} className="p-2 rounded-lg shrink-0"><Youtube size={18} /></button> : null}
-      {s.sp ? <a href={s.sp} target="_blank" rel="noreferrer" onClick={(e)=>e.stopPropagation()} title="Ouvir no Spotify" style={{ background: C.card2, color: C.green }} className="p-2 rounded-lg shrink-0"><Spotify size={18} /></a> : null}
+      {s.yt ? <button onClick={() => onMedia(s, "yt")} title="Assistir vídeo" aria-label="Assistir vídeo" style={{ background: C.card2, color: C.danger }} className="p-2 rounded-lg shrink-0"><Youtube size={18} /></button> : null}
+      {s.sp ? <button onClick={() => onMedia(s, "sp")} title="Ouvir no Spotify" aria-label="Ouvir no Spotify" style={{ background: C.card2, color: C.green }} className="p-2 rounded-lg shrink-0"><Spotify size={18} /></button> : null}
       {editor ? <button onClick={() => onEdit(s)} title="Editar cadastro" style={{ background: C.card2, color: C.gold }} className="p-2 rounded-lg shrink-0"><Pencil size={16} /></button> : null}
       <button onClick={() => onPlay(s.id)} title="Abrir cifra" style={{ color: C.gold }} className="p-1.5 shrink-0">{s.cifra ? <Play size={18} /> : <FileText size={17} style={{ color: C.blue }} />}</button>
     </div>
@@ -329,7 +336,7 @@ function Sel({ value, onChange, options }) {
 }
 
 // ====================== Player (Tocar) ======================
-function Player({ song, settings, saveSettings, updateSong, openViewer, editor, onClose, playlist, index, onNav, songById, font, setFont }) {
+function Player({ song, settings, saveSettings, updateSong, openViewer, editor, onClose, playlist, index, onNav, songById, font, setFont, onMedia }) {
   const [steps, setSteps] = useState(0);
   const [letraOnly, setLetraOnly] = useState(() => { try { return localStorage.getItem("mt_letra_only") === "1"; } catch (e) { return false; } });
   const toggleLetra = () => setLetraOnly(v => { const n = !v; try { localStorage.setItem("mt_letra_only", n ? "1" : "0"); } catch (e) {} return n; });
@@ -429,7 +436,7 @@ function Player({ song, settings, saveSettings, updateSong, openViewer, editor, 
           {scroll > 0 && <input type="range" min="1" max="6" value={scroll} onChange={(e) => setScroll(Number(e.target.value))} className="w-20" />}
           {scroll > 0 && <span style={{ color: C.gold, minWidth: 14 }} className="text-center font-bold">{scroll}</span>}
         </div>
-        {playlist ? <button onClick={gerarPDF} title="Gerar PDF da missa" style={{ background: C.card, color: C.txt }} className="px-2.5 py-1.5 rounded-lg font-semibold flex items-center gap-1"><FileText size={13} /> PDF</button> : null}<div className="ml-auto flex items-center gap-2">{song.sp ? <a href={song.sp} target="_blank" rel="noreferrer" title="Ouvir no Spotify" style={{ background: C.green, color: "#04261b" }} className="px-2.5 py-1.5 rounded-lg font-semibold flex items-center gap-1"><Spotify size={14} /> Spotify</a> : null}{song.u ? <button onClick={() => openViewer(song.u, song.t)} style={{ background: C.blue, color: "#04203f" }} className="px-2.5 py-1.5 rounded-lg font-semibold flex items-center gap-1"><FileText size={13} /> Ver cifra</button> : null}</div>
+        {playlist ? <button onClick={gerarPDF} title="Gerar PDF da missa" style={{ background: C.card, color: C.txt }} className="px-2.5 py-1.5 rounded-lg font-semibold flex items-center gap-1"><FileText size={13} /> PDF</button> : null}<div className="ml-auto flex items-center gap-2">{song.yt ? <button onClick={() => onMedia(song, "yt")} title="Assistir vídeo aqui, junto da cifra" style={{ background: C.danger, color: "#2a0610" }} className="px-2.5 py-1.5 rounded-lg font-semibold flex items-center gap-1"><Youtube size={14} /> Vídeo</button> : null}{song.sp ? <button onClick={() => onMedia(song, "sp")} title="Ouvir aqui, junto da cifra" style={{ background: C.green, color: "#04261b" }} className="px-2.5 py-1.5 rounded-lg font-semibold flex items-center gap-1"><Spotify size={14} /> Spotify</button> : null}{song.u ? <button onClick={() => openViewer(song.u, song.t)} style={{ background: C.blue, color: "#04203f" }} className="px-2.5 py-1.5 rounded-lg font-semibold flex items-center gap-1"><FileText size={13} /> Ver cifra</button> : null}</div>
       </div>
 
       {editing ? (
@@ -450,7 +457,7 @@ function Player({ song, settings, saveSettings, updateSong, openViewer, editor, 
           </div>
         </div>
       ) : (
-        <div ref={scRef} onTouchStart={pauseDrag} onTouchEnd={resumeDrag} onPointerDown={pauseDrag} onPointerUp={resumeDrag} className="flex-1 px-3 py-3" style={{ overflow: "auto", WebkitOverflowScrolling: "touch" }}>
+        <div ref={scRef} onTouchStart={pauseDrag} onTouchEnd={resumeDrag} onPointerDown={pauseDrag} onPointerUp={resumeDrag} className="flex-1 px-3 py-3" style={{ overflow: "auto", WebkitOverflowScrolling: "touch", paddingBottom: "calc(0.75rem + var(--mini-h, 0px))" }}>
           {song.cifra ? (
             <pre style={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace", fontSize: font, lineHeight: 1.5, whiteSpace: "pre", display: "inline-block", minWidth: "100%" }}>
               {shownLines.map((l, i) => isChordLine(l)
@@ -527,7 +534,7 @@ function Missas({ masses, teams, songById, onOpen }) {
   );
 }
 
-function MassEditor({ mkey, masses, saveMasses, teams, songs, songById, onPlay, onShow, onVideo, onEdit, editor, onClose }) {
+function MassEditor({ mkey, masses, saveMasses, teams, songs, songById, onPlay, onShow, onMedia, onEdit, editor, onClose }) {
   const [date, slot] = mkey.split("|");
   const mass = masses[mkey] || { team: "", items: [], note: "" };
   const [picking, setPicking] = useState(null);   // nome da parte, "Avulsa" ou null
@@ -562,8 +569,8 @@ function MassEditor({ mkey, masses, saveMasses, teams, songs, songById, onPlay, 
           <p className="font-medium truncate text-sm">{s.n != null ? s.n + " · " : ""}{s.t}</p>
           <p className="text-xs" style={{ color: C.mut }}>{s.tom ? s.tom + " · " : ""}{s.cifra ? "cifra" : (s.u ? "PDF" : "—")}</p>
         </button>
-        {s.yt ? <button onClick={() => onVideo(s)} title="Vídeo" style={{ color: C.danger }} className="p-1.5"><Youtube size={15} /></button> : null}
-        {s.sp ? <a href={s.sp} target="_blank" rel="noreferrer" title="Spotify" style={{ color: C.green }} className="p-1.5"><Spotify size={14} /></a> : null}
+        {s.yt ? <button onClick={() => onMedia(s, "yt")} title="Vídeo" aria-label="Vídeo" style={{ color: C.danger }} className="p-1.5"><Youtube size={15} /></button> : null}
+        {s.sp ? <button onClick={() => onMedia(s, "sp")} title="Spotify" aria-label="Ouvir no Spotify" style={{ color: C.green }} className="p-1.5"><Spotify size={14} /></button> : null}
         {editor ? <button onClick={() => onEdit(s)} title="Editar" style={{ color: C.gold }} className="p-1.5"><Pencil size={14} /></button> : null}
         <button onClick={() => removeAt(o.gi)} title="Remover" style={{ color: C.danger }} className="p-1.5"><Trash2 size={14} /></button>
       </div>
@@ -577,7 +584,7 @@ function MassEditor({ mkey, masses, saveMasses, teams, songs, songById, onPlay, 
         <div className="min-w-0 flex-1"><p className="font-bold truncate">{fmtDiaLongo(parseYmd(date))}</p><p className="text-xs" style={{ color: C.mut }}>Missa das {slot} · {total} música(s)</p></div>
         {flatIds.length > 0 ? <button onClick={() => onShow(flatIds, 0)} style={{ background: C.green, color: "#04261b" }} className="px-3 py-2 rounded-lg text-xs font-bold flex items-center gap-1 shrink-0"><Play size={14} /> Modo Show</button> : null}
       </div>
-      <div className="overflow-y-auto flex-1 p-3 space-y-3">
+      <div className="overflow-y-auto flex-1 p-3 space-y-3" style={{ paddingBottom: "calc(0.75rem + var(--mini-h, 0px))" }}>
         <Field label="Equipe que vai tocar">
           <select value={mass.team || ""} onChange={(e) => setField({ team: e.target.value })} style={inp}>
             <option value="">— escolher equipe —</option>
@@ -854,29 +861,70 @@ function PdfViewer({ url, title, onClose }) {
         <a href={url} target="_blank" rel="noreferrer" style={{ color: C.blue }} className="text-xs flex items-center gap-1 shrink-0"><ExternalLink size={13} /> nova aba</a>
       </div>
       <iframe title={title} src={src} className="flex-1 w-full" style={{ border: 0, background: "#fff" }} allow="autoplay" />
+      <div style={{ height: "var(--mini-h, 0px)", flexShrink: 0 }} />
     </div>
   );
 }
-function VideoViewer({ url, title, onClose }) {
-  const m = String(url || "").match(/(?:youtu\.be\/|youtube\.com\/(?:watch\?v=|embed\/|shorts\/|live\/)|[?&]v=)([A-Za-z0-9_-]{6,})/);
-  const id = m ? m[1] : "";
-  const emb = id ? "https://www.youtube.com/embed/" + id + "?rel=0&playsinline=1" : "";
-  return (
-    <div style={{ background: "rgba(0,0,0,0.92)" }} className="fixed inset-0 z-[60] flex flex-col">
-      <div style={{ background: C.card, borderBottom: "1px solid " + C.line }} className="px-3 py-2 flex items-center gap-2">
-        <button onClick={onClose} style={{ background: C.card2, color: C.txt }} className="px-3 py-2 rounded-lg flex items-center gap-1 font-semibold shrink-0"><ChevronLeft size={18} /> Voltar</button>
-        <p className="font-semibold truncate flex-1">{title}</p>
-        <a href={url} target="_blank" rel="noreferrer" style={{ color: C.blue }} className="text-xs flex items-center gap-1 shrink-0"><ExternalLink size={13} /> YouTube</a>
-      </div>
-      <div className="flex-1 flex items-center justify-center p-2">
-        {emb
-          ? <div style={{ position: "relative", width: "100%", maxWidth: 900, aspectRatio: "16 / 9" }}><iframe title={title} src={emb} style={{ border: 0, width: "100%", height: "100%", borderRadius: 12 }} allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowFullScreen /></div>
-          : <p style={{ color: C.mut }}>Link de vídeo inválido. <a href={url} target="_blank" rel="noreferrer" style={{ color: C.blue }} className="underline">Abrir link</a></p>}
-      </div>
-    </div>
-  );
-}
+// ====================== Mini player (YouTube / Spotify junto da cifra) ======================
+function ytId(url) { const m = String(url || "").match(/(?:youtu\.be\/|youtube\.com\/(?:watch\?v=|embed\/|shorts\/|live\/)|[?&]v=)([A-Za-z0-9_-]{6,})/); return m ? m[1] : ""; }
+function spEmbed(url) { const m = String(url || "").match(/open\.spotify\.com\/(?:intl-[a-zA-Z-]+\/)?(?:embed\/)?(track|album|playlist|episode)\/([A-Za-z0-9]+)/); return m ? "https://open.spotify.com/embed/" + m[1] + "/" + m[2] + "?utm_source=generator" : ""; }
 
+function MiniPlayer({ media, overlay, navRef, onClose }) {
+  const [min, setMin] = useState(false);
+  const [navH, setNavH] = useState(0);
+  const [vw, setVw] = useState(() => window.innerWidth || 375);
+  const boxRef = useRef(null);
+  const isYt = media.kind === "yt";
+  const id = isYt ? ytId(media.url) : "";
+  const src = isYt ? (id ? "https://www.youtube.com/embed/" + id + "?autoplay=1&playsinline=1&rel=0" : "") : spEmbed(media.url);
+  useEffect(() => { setMin(false); }, [media.url]);
+  // Fica logo acima da barra de abas nas telas principais; sobre a cifra/PDF fica colado no rodapé
+  useEffect(() => {
+    const upd = () => { setVw(window.innerWidth || 375); setNavH(!overlay && navRef && navRef.current ? navRef.current.offsetHeight : 0); };
+    upd(); window.addEventListener("resize", upd);
+    return () => window.removeEventListener("resize", upd);
+  }, [overlay]);
+  // Publica a altura do player (--mini-h) para as telas deixarem espaço no fim da rolagem
+  useEffect(() => {
+    const el = boxRef.current; if (!el) return;
+    const set = () => document.documentElement.style.setProperty("--mini-h", el.offsetHeight + "px");
+    set();
+    let ro = null;
+    if (window.ResizeObserver) { ro = new ResizeObserver(set); ro.observe(el); }
+    return () => { if (ro) ro.disconnect(); document.documentElement.style.removeProperty("--mini-h"); };
+  }, [min, media.kind, overlay, vw]);
+  // Tamanho do vídeo em px (16:9), sem depender de aspect-ratio (celulares antigos)
+  const vidW = min ? 176 : Math.min(vw - 24, 560);
+  const vidH = Math.round(vidW * 9 / 16);
+  return (
+    <div ref={boxRef} role="region" aria-label="Player de música" style={{ position: "fixed", left: 0, right: 0, bottom: navH, zIndex: 65, background: C.card, borderTop: "1px solid " + C.line, boxShadow: "0 -8px 24px rgba(0,0,0,0.45)", paddingBottom: overlay ? "env(safe-area-inset-bottom)" : 0 }}>
+      <div style={{ maxWidth: 672, margin: "0 auto" }}>
+        <div className="px-3 py-1.5 flex items-center gap-2">
+          {isYt ? <Youtube size={16} style={{ color: C.danger, flexShrink: 0 }} /> : <Spotify size={16} style={{ color: C.green, flexShrink: 0 }} />}
+          <p className="text-xs font-semibold truncate flex-1">{media.title}</p>
+          {isYt && src ? <button onClick={() => setMin(m => !m)} title={min ? "Ampliar vídeo" : "Diminuir vídeo"} aria-label={min ? "Ampliar vídeo" : "Diminuir vídeo"} style={{ background: C.card2, color: C.txt }} className="p-1.5 rounded-lg shrink-0">{min ? <ChevronUp size={16} /> : <ChevronDown size={16} />}</button> : null}
+          <a href={media.url} target="_blank" rel="noreferrer" title={isYt ? "Abrir no YouTube" : "Abrir no Spotify"} aria-label={isYt ? "Abrir no YouTube" : "Abrir no Spotify"} style={{ background: C.card2, color: C.blue }} className="p-1.5 rounded-lg shrink-0"><ExternalLink size={16} /></a>
+          <button onClick={onClose} title="Fechar player" aria-label="Fechar player" style={{ background: C.card2, color: C.txt }} className="p-1.5 rounded-lg shrink-0"><X size={16} /></button>
+        </div>
+        {!src ? (
+          <p className="px-3 pb-2 text-xs" style={{ color: C.mut }}>Este link não pode tocar dentro do app. Use o botão de abrir ao lado do título.</p>
+        ) : isYt ? (
+          <div className="px-3 pb-2" style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <div style={{ width: vidW, height: vidH, flexShrink: 0, margin: min ? 0 : "0 auto", borderRadius: 10, overflow: "hidden", background: "#000" }}>
+              <iframe title={media.title} src={src} style={{ border: 0, width: "100%", height: "100%", display: "block" }} allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowFullScreen />
+            </div>
+            {min ? <p className="text-xs" style={{ color: C.mut }}>Tocando enquanto você lê a cifra.</p> : null}
+          </div>
+        ) : (
+          <div className="px-3 pb-2">
+            <iframe title={media.title} src={src} style={{ border: 0, width: "100%", height: 80, borderRadius: 12, display: "block" }} allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture" loading="lazy" />
+            <p className="mt-1" style={{ color: C.mut, fontSize: 10.5 }}>Sem login no Spotify neste navegador, toca só 30 s. Para a música inteira, use o botão de abrir.</p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
 function LockModal({ hasPin, onClose, onSubmit }) {
   const [v, setV] = useState("");
   const [err, setErr] = useState("");
