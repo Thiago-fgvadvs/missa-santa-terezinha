@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Teste · Cifra automática</title>
+<meta name="robots" content="noindex" />
+<style>
+  :root { --bg:#120c1e; --card:#1d1530; --card2:#271a40; --line:#3a2a5c; --txt:#f3eefb; --mut:#a99ec4; --gold:#f4c95d; --green:#43d6a0; }
+  body { margin:0; background:var(--bg); color:var(--txt); font-family:system-ui,-apple-system,sans-serif; padding:16px; }
+  main { max-width:620px; margin:0 auto; } h1 { font-size:18px; } .mut { color:var(--mut); font-size:13px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:14px; margin-bottom:12px; }
+  button, select { font:inherit; } button { background:var(--gold); color:#2b2100; border:0; border-radius:10px; padding:10px 14px; font-weight:600; }
+  select { background:var(--bg); color:var(--txt); border:1px solid var(--line); border-radius:10px; padding:8px; }
+  pre#cifra { font-family:ui-monospace,Menlo,monospace; font-size:15px; line-height:1.5; white-space:pre; overflow:auto; }
+  .ac { color:var(--gold); font-weight:700; } table { width:100%; font-size:13px; border-collapse:collapse; } td { padding:3px 0; } td:last-child { text-align:right; color:var(--gold); }
+  pre#log { font-size:11px; color:var(--mut); white-space:pre-wrap; max-height:180px; overflow:auto; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Cifra automática no aparelho (protótipo)</h1>
+  <p class="mut">Separa a voz, detecta os acordes no instrumental, transcreve a letra da voz e monta um rascunho de cifra. Nada é enviado.</p>
+  <div class="card">
+    <label class="mut">Idioma da letra: <select id="lang"><option value="portuguese" selected>português</option><option value="english">inglês</option><option value="spanish">espanhol</option></select></label>
+    <label class="mut">Letra: <select id="asr"><option value="onnx-community/whisper-base_timestamped" selected>padrão (77 MB)</option><option value="onnx-community/whisper-tiny_timestamped">leve (41 MB)</option><option value="onnx-community/whisper-small_timestamped">melhor (249 MB)</option></select></label>
+    <label class="mut">Trecho: <select id="dur"><option value="60" selected>60 s</option><option value="0">música inteira</option></select></label>
+    <p><input type="file" id="arq" accept="audio/*" /></p>
+    <button id="ir" disabled>Gerar cifra</button>
+    <p class="mut" id="status"></p>
+  </div>
+  <div class="card"><table id="res"></table></div>
+  <div class="card"><b>Rascunho da cifra</b> <span class="mut" id="tomTxt"></span><pre id="cifra"></pre></div>
+  <div class="card"><b>Registro</b><pre id="log"></pre></div>
+</main>
+<script type="module">
+import { cromagrama, acordes, montarCifra } from "./cifra-auto.js";
+const $ = (id) => document.getElementById(id), Q = new URLSearchParams(location.search);
+const AUTO = Q.get("autoteste") === "1" && location.hostname === "127.0.0.1"; const t0 = performance.now();
+const log = (m) => { const s = ((performance.now() - t0) / 1000).toFixed(1); $("log").textContent += s + "s " + m + "\n"; if (AUTO) fetch("__registro?" + encodeURIComponent(s + " " + String(m).slice(0, 400))).catch(() => {}); };
+window.addEventListener("error", (e) => log("ERRO " + e.message));
+const fmt = (s) => Math.floor(s / 60) + ":" + String(Math.floor(s % 60)).padStart(2, "0");
+const SR = 44100, SEP = { id: "htdemucs_ft_vocals_fp16", mb: 166, url: "https://huggingface.co/StemSplitio/htdemucs-ft-vocals-onnx/resolve/main/htdemucs_ft_vocals_fp16weights.onnx" };
+const mkWorker = (f) => { const w = new Worker(new URL(f, import.meta.url), { type: "module" }); const p = new Map(); let s = 0, prog = null; w.onerror = (e) => { log("ERRO no worker " + f + ": " + (e.message || "falha ao carregar")); for (const q of p.values()) q.reject(new Error(e.message || "worker falhou")); p.clear(); }; w.onmessage = (e) => { const m = e.data; if (m.type === "progress") { prog && prog(m.ev); return; } const q = p.get(m.id); if (!q) return; p.delete(m.id); m.type === "error" ? q.reject(new Error(m.error)) : q.resolve(m); }; return { call: (type, d = {}, tr = []) => new Promise((res, rej) => { const id = ++s; p.set(id, { resolve: res, reject: rej }); w.postMessage({ type, id, ...d }, tr); }), set onProg(f) { prog = f; } }; };
+const sep = mkWorker("./worker.js"), letra = mkWorker("./worker-letra.js");
+const DB = () => new Promise((res, rej) => { const r = indexedDB.open("teste-separacao-voz", 1); r.onupgradeneeded = () => r.result.createObjectStore("modelo"); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); });
+const dbOp = async (mode, fn) => { const db = await DB(); return new Promise((res, rej) => { const q = fn(db.transaction("modelo", mode).objectStore("modelo")); q.onsuccess = () => res(q.result || null); q.onerror = () => rej(q.error); }); };
+// Transformers.js da CDN oficial, fixado e conferido (SHA-256), entregue ao worker como blob
+const TJS_URL = "https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.3.0/dist/transformers.min.js";
+const TJS_SHA256 = "1475fd440e9932ab206682ee42cb18f6097403e9ee77ea62084c592d0f83597d";   // SHA-256 do pacote npm 4.3.0
+let tjsBlob = null;
+async function libTransformers() {
+  if (tjsBlob) return tjsBlob;
+  const buf = await (await fetch(TJS_URL)).arrayBuffer();
+  const h = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", buf))).map(b => b.toString(16).padStart(2, "0")).join("");
+  if (h !== TJS_SHA256) throw new Error("o arquivo da biblioteca de letra não confere (integridade)");
+  return (tjsBlob = URL.createObjectURL(new Blob([buf], { type: "text/javascript" })));
+}
+let arquivo = null;
+$("arq").onchange = () => { arquivo = $("arq").files[0]; $("ir").disabled = !arquivo; };
+const linha = (a, b) => `<tr><td>${a}</td><td>${b}</td></tr>`; const res = []; const mostra = () => $("res").innerHTML = res.join("");
+async function gerar(buf) {
+  const T = (n) => (performance.now() - n) / 1000;
+  $("status").textContent = "Lendo a música…"; res.length = 0; mostra();
+  const ctx = new AudioContext(); const dec = await ctx.decodeAudioData(buf);
+  const off = new OfflineAudioContext(2, Math.ceil(dec.duration * SR), SR); const s = off.createBufferSource(); s.buffer = dec; s.connect(off.destination); s.start(); const b = await off.startRendering();
+  const secs = Number($("dur").value), n = secs ? Math.min(b.length, secs * SR) : b.length;
+  const L = b.getChannelData(0).slice(0, n), R = b.getChannelData(1).slice(0, n);
+  log("Música: " + fmt(dec.duration) + " → trecho " + fmt(n / SR));
+  // 1) separar a voz
+  let t = performance.now(); $("status").textContent = "Separando a voz…";
+  let bytes = await dbOp("readonly", st => st.get(SEP.id)).catch(() => null);
+  if (!bytes) { const r = await fetch(SEP.url); bytes = await r.arrayBuffer(); try { await dbOp("readwrite", st => st.put(bytes, SEP.id)); } catch (e) {} log("separador baixado (166 MB)"); }
+  await sep.call("load", { modelBytes: new Uint8Array(bytes) }); bytes = null;
+  sep.onProg = (ev) => { $("status").textContent = "Separando a voz… bloco " + ev.bloco + "/" + ev.total; };
+  const Lc = L.slice(), Rc = R.slice();
+  const r1 = await sep.call("separate", { left: Lc, right: Rc, rows: [3] }, [Lc.buffer, Rc.buffer]);
+  const vL = r1.stems[0], vR = r1.stems[1], iL = new Float32Array(n), iR = new Float32Array(n);
+  for (let k = 0; k < n; k++) { iL[k] = L[k] - vL[k]; iR[k] = R[k] - vR[k]; }
+  res.push(linha("1. Separar a voz", T(t).toFixed(1) + " s")); mostra(); log("separação: " + T(t).toFixed(1) + " s");
+  // 2) acordes no instrumental
+  t = performance.now(); $("status").textContent = "Detectando os acordes…";
+  const ac = acordes(cromagrama(iL, iR, SR));
+  res.push(linha("2. Acordes (" + ac.acordes.length + ", tom " + ac.tom + ")", T(t).toFixed(1) + " s")); mostra(); log("acordes: " + T(t).toFixed(1) + " s · " + ac.acordes.slice(0, 16).map(a => a.nome).join(" "));
+  // 3) letra a partir da voz (16 kHz mono)
+  t = performance.now(); $("status").textContent = "Preparando a transcrição da letra…";
+  const off16 = new OfflineAudioContext(1, Math.ceil(n / SR * 16000), 16000); const vb = off16.createBuffer(2, n, SR); vb.copyToChannel(vL, 0); vb.copyToChannel(vR, 1); const s2 = off16.createBufferSource(); s2.buffer = vb; s2.connect(off16.destination); s2.start(); const v16 = (await off16.startRendering()).getChannelData(0).slice();
+  letra.onProg = (ev) => { if (ev.fase === "baixando" && ev.total) $("status").textContent = "Baixando o modelo da letra… " + Math.round(ev.got / 1e6) + " de " + Math.round(ev.total / 1e6) + " MB"; };
+  await letra.call("load", { model: $("asr").value, lib: await libTransformers() }); log("modelo da letra pronto em " + T(t).toFixed(1) + " s");
+  const t3 = performance.now(); $("status").textContent = "Transcrevendo a letra…";
+  const r3 = await letra.call("transcrever", { audio: v16, lang: $("lang").value }, [v16.buffer]);
+  res.push(linha("3. Letra (" + r3.palavras.length + " palavras)", T(t3).toFixed(1) + " s")); mostra(); log("letra: " + T(t3).toFixed(1) + " s · " + r3.texto.slice(0, 160));
+  // 4) montar
+  const cifra = montarCifra(r3.palavras, ac.acordes);
+  $("tomTxt").textContent = "· tom provável: " + ac.tom;
+  $("cifra").innerHTML = cifra.split("\n").map(l => /^[A-G][#b]?m?(\s+[A-G][#b]?m?)*\s*$/.test(l.trim()) && l.trim() ? "<span class='ac'>" + l + "</span>" : l).join("\n");
+  const tot = (performance.now() - tIni) / 1000; res.push(linha("<b>Total para " + fmt(n / SR) + " de música</b>", "<b>" + tot.toFixed(1) + " s</b>")); mostra();
+  log("TOTAL " + tot.toFixed(1) + " s"); log("CIFRA\n" + cifra.slice(0, 1200)); $("status").textContent = "Pronto.";
+}
+let tIni = 0;
+$("ir").onclick = async () => { $("ir").disabled = true; tIni = performance.now(); try { await gerar(await arquivo.arrayBuffer()); } catch (e) { log("ERRO " + e.message); $("status").textContent = "Falhou: " + e.message; } $("ir").disabled = false; };
+log("isolado=" + self.crossOriginIsolated + " núcleos=" + navigator.hardwareConcurrency + " · " + (navigator.userAgent.match(/(Version|Chrome|CriOS)\/[\d.]+/) || [""])[0]);
+if (AUTO) { if (Q.get("lang")) $("lang").value = Q.get("lang"); if (Q.get("asr")) $("asr").value = "onnx-community/whisper-" + Q.get("asr") + "_timestamped"; if (Q.get("s")) $("dur").value = Q.get("s"); tIni = performance.now(); fetch("teste-cc0.mp3").then(r => r.arrayBuffer()).then(gerar).catch(e => log("ERRO " + e.message)); }
+</script>
+</body>
+</html>
