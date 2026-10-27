@@ -1,0 +1,12 @@
+{
+  "name": "missa-santa-terezinha-fonte",
+  "private": true,
+  "description": "Código-fonte do app da missa. Compila fonte/app.jsx para ../app.js (o que a Vercel serve).",
+  "scripts": {
+    "compilar": "esbuild app.jsx --minify --target=es2017 --outfile=../app.js --log-level=warning",
+    "estilos": "tailwindcss -c tw.config.js -i tw.css -o ../vendor/tailwind.css --minify"
+  },
+  "devDependencies": {
+    "esbuild": "0.25.0"
+  }
+}
