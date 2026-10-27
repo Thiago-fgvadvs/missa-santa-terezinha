@@ -92,12 +92,12 @@ export function montarCifra(palavras, lista, opts = {}) {
     cur.pos.push({ col: cur.txt.length, s: p.s, e: p.e }); cur.txt += w; cur.fim = p.e;
   }
   const saida = []; let k = 0;
-  const instrumental = (ate) => { const nomes = []; while (k < lista.length && lista[k].ini < ate - 0.2) { nomes.push(lista[k].nome); k++; } if (nomes.length) saida.push(nomes.join("   ")); };
+  const instrumental = (ate) => { const nomes = []; while (k < lista.length && lista[k].ini < ate - 0.2) { nomes.push(lista[k].nome); k++; } if (nomes.length) saida.push(nomes.join("   ")); return nomes.length > 0; };
   for (const ln of linhas) {
-    instrumental(ln.ini - 0.3);   // acordes antes do canto (introdução / entre estrofes)
+    const tocou = instrumental(ln.ini - 0.3);   // acordes antes do canto (introdução / entre estrofes)
     let acima = ""; const pos = [];
-    // o acorde que já soava quando a linha começa
-    if (k > 0 && lista[k - 1].fim > ln.ini + 0.3) pos.push({ col: 0, nome: lista[k - 1].nome });
+    // o acorde que já soava quando a linha começa (se não acabou de ser escrito na linha anterior)
+    if (k > 0 && lista[k - 1].fim > ln.ini + 0.3 && !tocou && !(ln.pos.length && k < lista.length && lista[k].ini <= ln.pos[0].s + 0.15)) pos.push({ col: 0, nome: lista[k - 1].nome });
     while (k < lista.length && lista[k].ini < ln.fim) {
       const a = lista[k]; let col = ln.pos[0].col;
       for (const q of ln.pos) { if (q.s <= a.ini + 0.15) col = q.col; else break; }

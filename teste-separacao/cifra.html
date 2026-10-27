@@ -6,15 +6,26 @@
 <title>Teste · Cifra automática</title>
 <meta name="robots" content="noindex" />
 <style>
-  :root { --bg:#120c1e; --card:#1d1530; --card2:#271a40; --line:#3a2a5c; --txt:#f3eefb; --mut:#a99ec4; --gold:#f4c95d; --green:#43d6a0; }
+  :root { --bg:#120c1e; --card:#1d1530; --card2:#271a40; --line:#3a2a5c; --txt:#f3eefb; --mut:#a99ec4; --gold:#f4c95d; --green:#43d6a0; --danger:#ff6b8a; }
   body { margin:0; background:var(--bg); color:var(--txt); font-family:system-ui,-apple-system,sans-serif; padding:16px; }
   main { max-width:620px; margin:0 auto; } h1 { font-size:18px; } .mut { color:var(--mut); font-size:13px; }
   .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:14px; margin-bottom:12px; }
   button, select { font:inherit; } button { background:var(--gold); color:#2b2100; border:0; border-radius:10px; padding:10px 14px; font-weight:600; }
+  button:disabled { opacity:.45; }
   select { background:var(--bg); color:var(--txt); border:1px solid var(--line); border-radius:10px; padding:8px; }
   pre#cifra { font-family:ui-monospace,Menlo,monospace; font-size:15px; line-height:1.5; white-space:pre; overflow:auto; }
   .ac { color:var(--gold); font-weight:700; } table { width:100%; font-size:13px; border-collapse:collapse; } td { padding:3px 0; } td:last-child { text-align:right; color:var(--gold); }
   pre#log { font-size:11px; color:var(--mut); white-space:pre-wrap; max-height:180px; overflow:auto; }
+  /* andamento */
+  #andamento { display:none; } #andamento.on { display:block; }
+  .topo { display:flex; justify-content:space-between; align-items:baseline; gap:8px; }
+  #relogio { font-variant-numeric:tabular-nums; color:var(--gold); font-weight:700; }
+  .bar { height:10px; background:var(--card2); border-radius:8px; overflow:hidden; margin:8px 0 4px; } .bar > i { display:block; height:100%; width:0; background:var(--green); transition:width .4s; }
+  #etapaTxt { font-size:14px; font-weight:600; } #etapaSub { font-size:12px; color:var(--mut); min-height:16px; }
+  ol#etapas { list-style:none; padding:0; margin:10px 0 0; font-size:13px; } ol#etapas li { padding:3px 0; color:var(--mut); }
+  ol#etapas li.atual { color:var(--txt); font-weight:600; } ol#etapas li.ok { color:var(--green); } ol#etapas li.erro { color:var(--danger); }
+  ol#etapas li::before { content:"○  "; } ol#etapas li.atual::before { content:"◐  "; } ol#etapas li.ok::before { content:"✓  "; } ol#etapas li.erro::before { content:"✕  "; }
+  #aviso { color:var(--gold); font-size:12px; margin-top:6px; } #falha { color:var(--danger); font-size:13px; margin-top:6px; white-space:pre-wrap; }
 </style>
 </head>
 <body>
@@ -25,27 +36,92 @@
     <label class="mut">Idioma da letra: <select id="lang"><option value="portuguese" selected>português</option><option value="english">inglês</option><option value="spanish">espanhol</option></select></label>
     <label class="mut">Letra: <select id="asr"><option value="onnx-community/whisper-base_timestamped" selected>padrão (77 MB)</option><option value="onnx-community/whisper-tiny_timestamped">leve (41 MB)</option><option value="onnx-community/whisper-small_timestamped">melhor (249 MB)</option></select></label>
     <label class="mut">Trecho: <select id="dur"><option value="60" selected>60 s</option><option value="0">música inteira</option></select></label>
-    <p><input type="file" id="arq" accept="audio/*" /></p>
+    <p><input type="file" id="arq" accept="audio/*,video/mp4,.mp4,.m4a,.mp3,.wav" /></p>
     <button id="ir" disabled>Gerar cifra</button>
-    <p class="mut" id="status"></p>
   </div>
+
+  <div class="card" id="andamento" aria-live="polite">
+    <div class="topo"><span id="etapaTxt">Preparando…</span><span>Tempo: <span id="relogio">0:00</span></span></div>
+    <div class="bar"><i id="barra"></i></div>
+    <div id="etapaSub"></div>
+    <ol id="etapas">
+      <li data-k="ler">Ler a música</li>
+      <li data-k="baixarSep">Baixar o separador (só na 1ª vez, 166 MB)</li>
+      <li data-k="separar">Separar a voz</li>
+      <li data-k="acordes">Detectar os acordes</li>
+      <li data-k="baixarLetra">Baixar o modelo da letra (só na 1ª vez)</li>
+      <li data-k="letra">Transcrever a letra</li>
+      <li data-k="montar">Montar a cifra</li>
+    </ol>
+    <div id="aviso"></div><div id="falha"></div>
+  </div>
+
   <div class="card"><table id="res"></table></div>
   <div class="card"><b>Rascunho da cifra</b> <span class="mut" id="tomTxt"></span><pre id="cifra"></pre></div>
   <div class="card"><b>Registro</b><pre id="log"></pre></div>
 </main>
 <script type="module">
-import { cromagrama, acordes, montarCifra } from "./cifra-auto.js";
+import { cromagrama, acordes, montarCifra } from "./cifra-auto.js?v=2";
 const $ = (id) => document.getElementById(id), Q = new URLSearchParams(location.search);
 const AUTO = Q.get("autoteste") === "1" && location.hostname === "127.0.0.1"; const t0 = performance.now();
-const log = (m) => { const s = ((performance.now() - t0) / 1000).toFixed(1); $("log").textContent += s + "s " + m + "\n"; if (AUTO) fetch("__registro?" + encodeURIComponent(s + " " + String(m).slice(0, 400))).catch(() => {}); };
+const log = (m) => { const s = ((performance.now() - t0) / 1000).toFixed(1); $("log").textContent += s + "s " + m + "\n"; $("log").scrollTop = 1e9; if (AUTO) fetch("__registro?" + encodeURIComponent(s + " " + String(m).slice(0, 400))).catch(() => {}); };
 window.addEventListener("error", (e) => log("ERRO " + e.message));
+window.addEventListener("unhandledrejection", (e) => log("ERRO " + ((e.reason && e.reason.message) || e.reason)));
 const fmt = (s) => Math.floor(s / 60) + ":" + String(Math.floor(s % 60)).padStart(2, "0");
 const SR = 44100, SEP = { id: "htdemucs_ft_vocals_fp16", mb: 166, url: "https://huggingface.co/StemSplitio/htdemucs-ft-vocals-onnx/resolve/main/htdemucs_ft_vocals_fp16weights.onnx" };
-const mkWorker = (f) => { const w = new Worker(new URL(f, import.meta.url), { type: "module" }); const p = new Map(); let s = 0, prog = null; w.onerror = (e) => { log("ERRO no worker " + f + ": " + (e.message || "falha ao carregar")); for (const q of p.values()) q.reject(new Error(e.message || "worker falhou")); p.clear(); }; w.onmessage = (e) => { const m = e.data; if (m.type === "progress") { prog && prog(m.ev); return; } const q = p.get(m.id); if (!q) return; p.delete(m.id); m.type === "error" ? q.reject(new Error(m.error)) : q.resolve(m); }; return { call: (type, d = {}, tr = []) => new Promise((res, rej) => { const id = ++s; p.set(id, { resolve: res, reject: rej }); w.postMessage({ type, id, ...d }, tr); }), set onProg(f) { prog = f; } }; };
-const sep = mkWorker("./worker.js"), letra = mkWorker("./worker-letra.js");
+const VERSAO = "3";   // muda a cada publicação, para o celular não usar um motor antigo guardado
+
+// ---------------- andamento na tela ----------------
+let relogio = 0, ultimoSinal = 0, etapaAtual = null;
+const PESO = { ler: 3, baixarSep: 8, separar: 55, acordes: 2, baixarLetra: 6, letra: 24, montar: 2 };
+const ORDEM = Object.keys(PESO);
+function iniciarAndamento() {
+  $("andamento").classList.add("on"); $("falha").textContent = ""; $("aviso").textContent = "";
+  document.querySelectorAll("#etapas li").forEach(li => li.className = "");
+  const ini = performance.now(); clearInterval(relogio);
+  relogio = setInterval(() => {
+    $("relogio").textContent = fmt((performance.now() - ini) / 1000);
+    const parado = (performance.now() - ultimoSinal) / 1000;
+    $("aviso").textContent = etapaAtual && parado > 90 ? "Sem sinal do processamento há " + fmt(parado) + ". Se continuar assim, recarregue a página." : "";
+  }, 1000);
+}
+function etapa(k, frac, sub) {   // frac 0..1 dentro da etapa
+  ultimoSinal = performance.now();
+  if (k !== etapaAtual) { if (etapaAtual) mark(etapaAtual, "ok"); etapaAtual = k; mark(k, "atual"); }
+  const antes = ORDEM.slice(0, ORDEM.indexOf(k)).reduce((a, x) => a + PESO[x], 0), tot = ORDEM.reduce((a, x) => a + PESO[x], 0);
+  const pct = Math.round((antes + PESO[k] * Math.max(0, Math.min(1, frac || 0))) / tot * 100);
+  $("barra").style.width = pct + "%";
+  $("etapaTxt").textContent = document.querySelector(`#etapas li[data-k="${k}"]`).textContent.replace(/ \(só.*$/, "") + (frac != null ? " — " + Math.round(frac * 100) + "%" : "") + "  ·  " + pct + "% do total";
+  $("etapaSub").textContent = sub || "";
+}
+const pular = (k, motivo) => { mark(k, "ok"); const li = document.querySelector(`#etapas li[data-k="${k}"]`); if (motivo) li.textContent = li.textContent.replace(/ \(só.*$/, "") + " — " + motivo; };
+function mark(k, cls) { const li = document.querySelector(`#etapas li[data-k="${k}"]`); if (li) li.className = cls; }
+function concluir() { if (etapaAtual) mark(etapaAtual, "ok"); etapaAtual = null; clearInterval(relogio); $("barra").style.width = "100%"; $("etapaTxt").textContent = "Pronto ✓"; $("etapaSub").textContent = ""; $("aviso").textContent = ""; }
+function falhou(msg) { if (etapaAtual) mark(etapaAtual, "erro"); etapaAtual = null; clearInterval(relogio); $("etapaTxt").textContent = "Parou com erro"; $("falha").textContent = msg; }
+
+// ---------------- motores (um de cada vez; fechados ao terminar) ----------------
+function abrirMotor(arquivo) {
+  return new Promise((resolve, reject) => {
+    let w; try { w = new Worker(new URL(arquivo + "?v=" + VERSAO, import.meta.url), { type: "module" }); } catch (e) { reject(new Error("não consegui abrir o motor " + arquivo + ": " + e.message)); return; }
+    const pend = new Map(); let seq = 0, prog = null, pronto = false;
+    w.onerror = (e) => {
+      const det = [e.message, e.filename && e.filename.split("/").pop(), e.lineno].filter(Boolean).join(" · ") || "falha ao carregar";
+      log("ERRO no motor " + arquivo + ": " + det);
+      const err = new Error("o motor " + arquivo + " falhou (" + det + ")");
+      for (const q of pend.values()) q.reject(err); pend.clear(); if (!pronto) reject(err);
+    };
+    w.onmessage = (e) => { const m = e.data; if (m.type === "progress") { prog && prog(m.ev); return; } const q = pend.get(m.id); if (!q) return; pend.delete(m.id); m.type === "error" ? q.reject(new Error(m.error)) : q.resolve(m); };
+    const api = { call: (type, d = {}, tr = []) => new Promise((res, rej) => { const id = ++seq; pend.set(id, { resolve: res, reject: rej }); w.postMessage({ type, id, ...d }, tr); }), set onProg(f) { prog = f; }, fechar: () => w.terminate() };
+    // confirma que o motor abriu de fato (responde a "init") antes de seguir; até 30 s
+    const tm = setTimeout(() => { if (!pronto) reject(new Error("o motor " + arquivo + " não respondeu em 30 s")); }, 30000);
+    api.call("init").then(() => { pronto = true; clearTimeout(tm); resolve(api); }, (e) => { clearTimeout(tm); reject(e); });
+  });
+}
+async function abrirComRetentativa(arquivo) { try { return await abrirMotor(arquivo); } catch (e) { log("nova tentativa de abrir " + arquivo + " (" + e.message + ")"); await new Promise(r => setTimeout(r, 1500)); return abrirMotor(arquivo); } }
+
 const DB = () => new Promise((res, rej) => { const r = indexedDB.open("teste-separacao-voz", 1); r.onupgradeneeded = () => r.result.createObjectStore("modelo"); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); });
 const dbOp = async (mode, fn) => { const db = await DB(); return new Promise((res, rej) => { const q = fn(db.transaction("modelo", mode).objectStore("modelo")); q.onsuccess = () => res(q.result || null); q.onerror = () => rej(q.error); }); };
-// Transformers.js da CDN oficial, fixado e conferido (SHA-256), entregue ao worker como blob
+// Transformers.js da CDN oficial, fixado e conferido (SHA-256), entregue ao motor da letra como blob
 const TJS_URL = "https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.3.0/dist/transformers.min.js";
 const TJS_SHA256 = "1475fd440e9932ab206682ee42cb18f6097403e9ee77ea62084c592d0f83597d";   // SHA-256 do pacote npm 4.3.0
 let tjsBlob = null;
@@ -56,51 +132,100 @@ async function libTransformers() {
   if (h !== TJS_SHA256) throw new Error("o arquivo da biblioteca de letra não confere (integridade)");
   return (tjsBlob = URL.createObjectURL(new Blob([buf], { type: "text/javascript" })));
 }
-let arquivo = null;
+
+let arquivo = null, wake = null;
 $("arq").onchange = () => { arquivo = $("arq").files[0]; $("ir").disabled = !arquivo; };
 const linha = (a, b) => `<tr><td>${a}</td><td>${b}</td></tr>`; const res = []; const mostra = () => $("res").innerHTML = res.join("");
+const tempoEta = (ini, frac) => { if (!frac || frac < 0.02) return ""; const p = (performance.now() - ini) / 1000; return "faltam cerca de " + fmt(p / frac * (1 - frac)); };
+
 async function gerar(buf) {
   const T = (n) => (performance.now() - n) / 1000;
-  $("status").textContent = "Lendo a música…"; res.length = 0; mostra();
-  const ctx = new AudioContext(); const dec = await ctx.decodeAudioData(buf);
-  const off = new OfflineAudioContext(2, Math.ceil(dec.duration * SR), SR); const s = off.createBufferSource(); s.buffer = dec; s.connect(off.destination); s.start(); const b = await off.startRendering();
-  const secs = Number($("dur").value), n = secs ? Math.min(b.length, secs * SR) : b.length;
-  const L = b.getChannelData(0).slice(0, n), R = b.getChannelData(1).slice(0, n);
-  log("Música: " + fmt(dec.duration) + " → trecho " + fmt(n / SR));
-  // 1) separar a voz
-  let t = performance.now(); $("status").textContent = "Separando a voz…";
+  res.length = 0; mostra(); $("cifra").textContent = ""; $("tomTxt").textContent = "";
+  iniciarAndamento();
+  try { if (navigator.wakeLock) wake = await navigator.wakeLock.request("screen"); } catch (e) {}
+
+  // 1) ler e converter para 44,1 kHz estéreo (só o trecho escolhido fica na memória)
+  etapa("ler", null, "Decodificando o arquivo…");
+  let L, R, n;
+  {
+    const ctx = new AudioContext(); let dec = await ctx.decodeAudioData(buf); buf = null; ctx.close();
+    const secs = Number($("dur").value), dur = secs ? Math.min(dec.duration, secs) : dec.duration;
+    etapa("ler", 0.5, "Convertendo " + fmt(dur) + " de música…");
+    const off = new OfflineAudioContext(2, Math.ceil(dur * SR), SR); const s = off.createBufferSource(); s.buffer = dec; s.connect(off.destination); s.start(); dec = null;
+    const b = await off.startRendering(); L = b.getChannelData(0).slice(); R = b.getChannelData(1).slice(); n = L.length;
+    log("Música: trecho " + fmt(n / SR));
+  }
+
+  // 2) separar a voz (o motor devolve a voz e o instrumental, sem cópia extra aqui)
+  let t = performance.now();
   let bytes = await dbOp("readonly", st => st.get(SEP.id)).catch(() => null);
-  if (!bytes) { const r = await fetch(SEP.url); bytes = await r.arrayBuffer(); try { await dbOp("readwrite", st => st.put(bytes, SEP.id)); } catch (e) {} log("separador baixado (166 MB)"); }
-  await sep.call("load", { modelBytes: new Uint8Array(bytes) }); bytes = null;
-  sep.onProg = (ev) => { $("status").textContent = "Separando a voz… bloco " + ev.bloco + "/" + ev.total; };
-  const Lc = L.slice(), Rc = R.slice();
-  const r1 = await sep.call("separate", { left: Lc, right: Rc, rows: [3] }, [Lc.buffer, Rc.buffer]);
-  const vL = r1.stems[0], vR = r1.stems[1], iL = new Float32Array(n), iR = new Float32Array(n);
-  for (let k = 0; k < n; k++) { iL[k] = L[k] - vL[k]; iR[k] = R[k] - vR[k]; }
+  if (bytes) pular("baixarSep", "já estava no aparelho");
+  else {
+    etapa("baixarSep", 0, "Conectando…");
+    const r = await fetch(SEP.url); if (!r.ok) throw new Error("download do separador falhou (HTTP " + r.status + ")");
+    const total = Number(r.headers.get("content-length")) || SEP.mb * 1e6, rd = r.body.getReader(), partes = []; let got = 0;
+    for (;;) { const { done, value } = await rd.read(); if (done) break; partes.push(value); got += value.length; etapa("baixarSep", got / total, Math.round(got / 1e6) + " de " + SEP.mb + " MB"); }
+    const u = new Uint8Array(got); let o = 0; for (const p of partes) { u.set(p, o); o += p.length; } bytes = u.buffer;
+    try { await dbOp("readwrite", st => st.put(bytes, SEP.id)); } catch (e) {}
+    log("separador baixado (166 MB)");
+  }
+  etapa("separar", 0, "Abrindo o motor de separação…");
+  const sep = await abrirComRetentativa("./worker.js");
+  etapa("separar", 0, "Preparando o separador…");
+  await sep.call("load", { modelBytes: new Uint8Array(bytes) }, [bytes]); bytes = null;   // transfere (sem cópia de 166 MB)
+  const tSep = performance.now();
+  sep.onProg = (ev) => etapa("separar", ev.bloco / ev.total, "bloco " + ev.bloco + " de " + ev.total + " · " + tempoEta(tSep, ev.bloco / ev.total));
+  etapa("separar", 0, "Separando…");
+  const r1 = await sep.call("separate", { left: L, right: R, rows: [3], inst: true }, [L.buffer, R.buffer]);
+  L = R = null; sep.fechar();
+  let [vL, vR, iL, iR] = r1.stems;
   res.push(linha("1. Separar a voz", T(t).toFixed(1) + " s")); mostra(); log("separação: " + T(t).toFixed(1) + " s");
-  // 2) acordes no instrumental
-  t = performance.now(); $("status").textContent = "Detectando os acordes…";
-  const ac = acordes(cromagrama(iL, iR, SR));
+
+  // 3) acordes no instrumental
+  t = performance.now(); etapa("acordes", 0.1, "Analisando as notas do instrumental…");
+  await new Promise(r => setTimeout(r, 30));
+  const ac = acordes(cromagrama(iL, iR, SR)); iL = iR = null;
+  etapa("acordes", 1, ac.acordes.length + " mudanças de acorde · tom provável " + ac.tom);
   res.push(linha("2. Acordes (" + ac.acordes.length + ", tom " + ac.tom + ")", T(t).toFixed(1) + " s")); mostra(); log("acordes: " + T(t).toFixed(1) + " s · " + ac.acordes.slice(0, 16).map(a => a.nome).join(" "));
-  // 3) letra a partir da voz (16 kHz mono)
-  t = performance.now(); $("status").textContent = "Preparando a transcrição da letra…";
-  const off16 = new OfflineAudioContext(1, Math.ceil(n / SR * 16000), 16000); const vb = off16.createBuffer(2, n, SR); vb.copyToChannel(vL, 0); vb.copyToChannel(vR, 1); const s2 = off16.createBufferSource(); s2.buffer = vb; s2.connect(off16.destination); s2.start(); const v16 = (await off16.startRendering()).getChannelData(0).slice();
-  letra.onProg = (ev) => { if (ev.fase === "baixando" && ev.total) $("status").textContent = "Baixando o modelo da letra… " + Math.round(ev.got / 1e6) + " de " + Math.round(ev.total / 1e6) + " MB"; };
-  await letra.call("load", { model: $("asr").value, lib: await libTransformers() }); log("modelo da letra pronto em " + T(t).toFixed(1) + " s");
-  const t3 = performance.now(); $("status").textContent = "Transcrevendo a letra…";
+
+  // 4) letra a partir da voz (16 kHz mono)
+  t = performance.now();
+  const off16 = new OfflineAudioContext(1, Math.ceil(n / SR * 16000), 16000); const vb = off16.createBuffer(2, n, SR); vb.copyToChannel(vL, 0); vb.copyToChannel(vR, 1); vL = vR = null;
+  const s2 = off16.createBufferSource(); s2.buffer = vb; s2.connect(off16.destination); s2.start(); const v16 = (await off16.startRendering()).getChannelData(0).slice();
+  etapa("baixarLetra", 0, "Abrindo o motor da letra…");
+  const letra = await abrirComRetentativa("./worker-letra.js");
+  let baixou = false;
+  letra.onProg = (ev) => {
+    if (ev.fase === "baixando" && ev.total) { baixou = true; etapa("baixarLetra", ev.got / ev.total, Math.round(ev.got / 1e6) + " de " + Math.round(ev.total / 1e6) + " MB"); }
+    if (ev.fase === "transcrevendo") etapa("letra", ev.parte / ev.total, "parte " + ev.parte + " de " + ev.total + " · " + tempoEta(tLetra, ev.parte / ev.total));
+  };
+  etapa("baixarLetra", 0, "Carregando o modelo da letra…");
+  await letra.call("load", { model: $("asr").value, lib: await libTransformers() });
+  if (!baixou) pular("baixarLetra", "já estava no aparelho");
+  log("modelo da letra pronto em " + T(t).toFixed(1) + " s");
+  const tLetra = performance.now(); etapa("letra", 0, "Começando a transcrição…");
   const r3 = await letra.call("transcrever", { audio: v16, lang: $("lang").value }, [v16.buffer]);
-  res.push(linha("3. Letra (" + r3.palavras.length + " palavras)", T(t3).toFixed(1) + " s")); mostra(); log("letra: " + T(t3).toFixed(1) + " s · " + r3.texto.slice(0, 160));
-  // 4) montar
+  letra.fechar();
+  res.push(linha("3. Letra (" + r3.palavras.length + " palavras)", T(tLetra).toFixed(1) + " s")); mostra(); log("letra: " + T(tLetra).toFixed(1) + " s · " + r3.texto.slice(0, 160));
+
+  // 5) montar
+  etapa("montar", 0.5, "Colocando os acordes sobre as palavras…");
   const cifra = montarCifra(r3.palavras, ac.acordes);
   $("tomTxt").textContent = "· tom provável: " + ac.tom;
   $("cifra").innerHTML = cifra.split("\n").map(l => /^[A-G][#b]?m?(\s+[A-G][#b]?m?)*\s*$/.test(l.trim()) && l.trim() ? "<span class='ac'>" + l + "</span>" : l).join("\n");
   const tot = (performance.now() - tIni) / 1000; res.push(linha("<b>Total para " + fmt(n / SR) + " de música</b>", "<b>" + tot.toFixed(1) + " s</b>")); mostra();
-  log("TOTAL " + tot.toFixed(1) + " s"); log("CIFRA\n" + cifra.slice(0, 1200)); $("status").textContent = "Pronto.";
+  concluir(); log("TOTAL " + tot.toFixed(1) + " s"); log("CIFRA\n" + cifra.slice(0, 1200));
 }
 let tIni = 0;
-$("ir").onclick = async () => { $("ir").disabled = true; tIni = performance.now(); try { await gerar(await arquivo.arrayBuffer()); } catch (e) { log("ERRO " + e.message); $("status").textContent = "Falhou: " + e.message; } $("ir").disabled = false; };
+async function rodar(bufPromise) {
+  $("ir").disabled = true; tIni = performance.now();
+  try { await gerar(await bufPromise); } catch (e) { log("ERRO " + e.message); falhou("Falhou: " + e.message); }
+  try { if (wake) { await wake.release(); wake = null; } } catch (e) {}
+  $("ir").disabled = !arquivo;
+}
+$("ir").onclick = () => rodar(arquivo.arrayBuffer());
 log("isolado=" + self.crossOriginIsolated + " núcleos=" + navigator.hardwareConcurrency + " · " + (navigator.userAgent.match(/(Version|Chrome|CriOS)\/[\d.]+/) || [""])[0]);
-if (AUTO) { if (Q.get("lang")) $("lang").value = Q.get("lang"); if (Q.get("asr")) $("asr").value = "onnx-community/whisper-" + Q.get("asr") + "_timestamped"; if (Q.get("s")) $("dur").value = Q.get("s"); tIni = performance.now(); fetch("teste-cc0.mp3").then(r => r.arrayBuffer()).then(gerar).catch(e => log("ERRO " + e.message)); }
+if (AUTO) { if (Q.get("lang")) $("lang").value = Q.get("lang"); if (Q.get("asr")) $("asr").value = "onnx-community/whisper-" + Q.get("asr") + "_timestamped"; if (Q.get("s")) $("dur").value = Q.get("s"); rodar(fetch("teste-cc0.mp3").then(r => r.arrayBuffer())); }
 </script>
 </body>
 </html>
