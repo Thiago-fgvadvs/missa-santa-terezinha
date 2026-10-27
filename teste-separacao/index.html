@@ -42,7 +42,7 @@
   <section class="card">
     <h2>2. Modelo de separação de voz</h2>
     <p class="mut" id="mdlInfo">Baixado uma única vez (cerca de 166 MB) e guardado neste aparelho. Use Wi-Fi.</p>
-    <select id="ep" hidden><option value="wasm" selected>processador</option></select>
+    <label class="mut">Separar em: <select id="mdl"><option value="voz" selected>voz × instrumental (melhor voz)</option><option value="4">4 faixas: voz, bateria, baixo, outros</option><option value="6">6 faixas: + violão/guitarra e piano</option></select></label>
     <div class="row" style="margin-top:10px"><button class="pri" id="btnModel" disabled>Baixar e preparar</button><button class="dan pill" id="btnDelModel" hidden>Apagar modelo</button></div>
     <div class="bar"><i id="mdlBar"></i></div>
   </section>
@@ -86,7 +86,13 @@ window.addEventListener("error", (e) => log("ERRO: " + (e.message || e)));
 window.addEventListener("unhandledrejection", (e) => log("ERRO: " + ((e.reason && e.reason.message) || e.reason)));
 
 const SR = 44100;
-const MODEL = { id: "htdemucs_ft_vocals_fp16", mb: 166, url: "https://huggingface.co/StemSplitio/htdemucs-ft-vocals-onnx/resolve/main/htdemucs_ft_vocals_fp16weights.onnx" };
+// Modelos HT-Demucs em ONNX (StemSplit, MIT). Saída (1, faixas, 2, N); "rows" = faixas usadas, na ordem do modelo.
+const MODELS = {
+  voz: { id: "htdemucs_ft_vocals_fp16", mb: 166, url: "https://huggingface.co/StemSplitio/htdemucs-ft-vocals-onnx/resolve/main/htdemucs_ft_vocals_fp16weights.onnx", rows: [3], names: ["Voz"], inst: true },
+  4:   { id: "htdemucs_fp16", mb: 166, url: "https://huggingface.co/StemSplitio/htdemucs-onnx/resolve/main/htdemucs_fp16weights.onnx", rows: [3, 0, 1, 2], names: ["Voz", "Bateria", "Baixo", "Outros"] },
+  6:   { id: "htdemucs_6s_fp16", mb: 136, url: "https://huggingface.co/StemSplitio/htdemucs-6s-onnx/resolve/main/htdemucs_6s_fp16weights.onnx", rows: [3, 4, 5, 0, 1, 2], names: ["Voz", "Violão/guitarra", "Piano/teclado", "Bateria", "Baixo", "Outros"] },
+};
+let MODEL = MODELS.voz;
 let modelBytes = null, loadedEp = null;
 let audio = null;                 // { L, R (44,1 kHz), dur } — só em memória
 let tracks = [];
@@ -131,7 +137,7 @@ async function prepare() {
   $("btnModel").disabled = true;
   try {
     if (!modelBytes) { const c = await dbOp("readonly", s => s.get(MODEL.id)).catch(() => null); modelBytes = c ? new Uint8Array(c) : await download(); if (c) log("Modelo já estava no aparelho."); }
-    const ep = $("ep").value; $("btnModel").textContent = "Preparando…";
+    const ep = "wasm"; $("btnModel").textContent = "Preparando…";
     const r = await call("load", { modelBytes: modelBytes.slice(), ep, opt: Q.get("opt") || "disabled", arena: Q.get("arena") === "1" });
     loadedEp = ep; log("Modelo preparado (" + (ep === "wasm" ? "processador" : "placa gráfica") + ") em " + (r.ms / 1000).toFixed(1) + " s");
     $("mdlBar").style.width = "100%"; $("btnModel").textContent = "Pronto ✓ (" + (ep === "wasm" ? "processador" : "placa gráfica") + ")"; $("btnDelModel").hidden = false;
@@ -139,7 +145,12 @@ async function prepare() {
   $("btnModel").disabled = false; refreshSep();
 }
 $("btnModel").onclick = prepare;
-$("ep").onchange = () => { loadedEp = null; $("btnModel").textContent = "Preparar de novo"; refreshSep(); };
+$("mdl").onchange = async () => {
+  MODEL = MODELS[$("mdl").value]; modelBytes = null; loadedEp = null; $("mdlBar").style.width = "0%";
+  const tem = await dbOp("readonly", s => s.count(MODEL.id)).catch(() => 0);
+  $("mdlInfo").textContent = "Modelo de " + MODEL.mb + " MB, baixado uma única vez e guardado neste aparelho. Use Wi-Fi.";
+  $("btnModel").textContent = tem ? "Preparar (modelo já baixado)" : "Baixar e preparar"; $("btnDelModel").hidden = !tem; refreshSep();
+};
 $("btnDelModel").onclick = async () => { await dbOp("readwrite", s => s.delete(MODEL.id)); modelBytes = null; loadedEp = null; $("btnDelModel").hidden = true; $("btnModel").textContent = "Baixar e preparar"; $("mdlBar").style.width = "0%"; log("Modelo apagado do aparelho."); refreshSep(); };
 
 // ---------- 3. Música (convertida para 44,1 kHz estéreo, como o modelo exige) ----------
@@ -175,23 +186,26 @@ $("btnSep").onclick = async () => {
   onProg = (ev) => { blocos.push(ev.ms); $("sepBar").style.width = (ev.bloco / ev.total * 100) + "%"; $("sepMsg").textContent = "Separando… bloco " + ev.bloco + " de " + ev.total; log("bloco " + ev.bloco + "/" + ev.total + ": " + (ev.ms / 1000).toFixed(1) + " s"); };
   const t = performance.now();
   try {
-    const r = await call("separate", { left: L, right: R }, [L.buffer, R.buffer]);
+    const r = await call("separate", { left: L, right: R, rows: MODEL.rows }, [L.buffer, R.buffer]);
     const sp = (performance.now() - t) / 1000, sa = n / SR;
     log("Concluído em " + sp.toFixed(1) + " s (" + (sp / sa).toFixed(2) + "× a duração do trecho)");
     $("sepBar").style.width = "100%"; $("sepMsg").textContent = "Pronto em " + sp.toFixed(1) + " s.";
-    buildMixer(r.vL, r.vR, n, sp, sa, blocos);
+    buildMixer(r.stems, n, sp, sa, blocos);
   } catch (e) { $("sepMsg").textContent = "Falhou: " + e.message; log("ERRO na separação: " + e.message); }
   finally { onProg = null; refreshSep(); }
 };
 
-function buildMixer(vL, vR, n, sp, sa, blocos) {
+function buildMixer(stems, n, sp, sa, blocos) {
   const mk = (l, r) => { const b = ctx.createBuffer(2, n, SR); b.copyToChannel(l, 0); b.copyToChannel(r, 1); return b; };
-  const iL = new Float32Array(n), iR = new Float32Array(n);
-  for (let k = 0; k < n; k++) { iL[k] = audio.L[k] - vL[k]; iR[k] = audio.R[k] - vR[k]; }   // instrumental = original − voz
-  tracks = [{ name: "Voz", buf: mk(vL, vR), vol: 1 }, { name: "Instrumental", buf: mk(iL, iR), vol: 1 }];
+  tracks = MODEL.names.map((name, j) => ({ name, buf: mk(stems[2 * j], stems[2 * j + 1]), vol: 1 }));
   const rms = (a) => { let s = 0; for (let k = 0; k < a.length; k++) s += a[k] * a[k]; return Math.sqrt(s / Math.max(1, a.length)); };
   const db = (x) => (20 * Math.log10(Math.max(x, 1e-9))).toFixed(1) + " dB";
-  log("Nível médio — original: " + db(rms(audio.L.subarray(0, n))) + " · voz: " + db(rms(vL)) + " · instrumental: " + db(rms(iL)));
+  if (MODEL.inst) {   // instrumental = original − voz
+    const [vL, vR] = [stems[0], stems[1]], iL = new Float32Array(n), iR = new Float32Array(n);
+    for (let k = 0; k < n; k++) { iL[k] = audio.L[k] - vL[k]; iR[k] = audio.R[k] - vR[k]; }
+    tracks.push({ name: "Instrumental", buf: mk(iL, iR), vol: 1 });
+  }
+  log("Nível médio — original: " + db(rms(audio.L.subarray(0, n))) + " · " + tracks.map(tk => tk.name + ": " + db(rms(tk.buf.getChannelData(0)))).join(" · "));
   $("tracks").innerHTML = "";
   for (const tk of tracks) {
     const row = document.createElement("div"); row.className = "trk";
@@ -243,6 +257,7 @@ window.__teste = { loadAudio, prepare, log: () => $("log").textContent };
     $("btnModel").disabled = false;
     if (await dbOp("readonly", s => s.count(MODEL.id)).catch(() => 0)) $("btnModel").textContent = "Preparar (modelo já baixado)";
     if (AUTO) {
+      if (Q.get("m")) { $("mdl").value = Q.get("m"); MODEL = MODELS[Q.get("m")]; }
       await prepare();
       await loadAudio("teste-cc0.mp3", fetch("teste-cc0.mp3").then(r => r.arrayBuffer()));
       $("dur").value = Q.get("s") || "8";
