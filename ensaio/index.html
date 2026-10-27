@@ -1,0 +1,256 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Modo ensaio · Repertório da Missa</title>
+<meta name="robots" content="noindex" />
+<meta name="theme-color" content="#120c1e" />
+<link rel="icon" href="../icon-192.png?v=3" />
+<style>
+  :root { --bg:#120c1e; --card:#1d1530; --card2:#271a40; --line:#3a2a5c; --txt:#f3eefb; --mut:#a99ec4; --gold:#f4c95d; --green:#43d6a0; --blue:#6ea8fe; --danger:#ff6b8a; --painel:0px; }
+  * { box-sizing:border-box; }
+  html, body { height:100%; margin:0; background:var(--bg); color:var(--txt); font-family:system-ui,-apple-system,sans-serif; }
+  body { display:flex; flex-direction:column; }
+  button, select { font:inherit; }
+  button { background:var(--card2); color:var(--txt); border:1px solid var(--line); border-radius:10px; padding:8px 12px; font-weight:600; cursor:pointer; }
+  button:disabled { opacity:.45; }
+  button.pri { background:var(--gold); color:#2b2100; border:0; } button.ok { background:var(--green); color:#04261b; border:0; }
+  button.on { background:var(--gold); color:#2b2100; border-color:var(--gold); }
+  select { background:var(--bg); color:var(--txt); border:1px solid var(--line); border-radius:10px; padding:8px; }
+  header { background:var(--card); border-bottom:1px solid var(--line); padding:calc(8px + env(safe-area-inset-top)) 12px 8px; display:flex; gap:8px; align-items:center; }
+  header .tit { min-width:0; flex:1; } header .tit b { display:block; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; } header .tit small { color:var(--mut); font-size:12px; }
+  .ctl { background:var(--card2); border-bottom:1px solid var(--line); padding:6px 12px; display:flex; gap:6px; align-items:center; flex-wrap:wrap; font-size:13px; }
+  .ctl button { padding:5px 9px; font-size:13px; } .ctl .n { color:var(--gold); font-weight:700; min-width:26px; text-align:center; }
+  #cifra { flex:1; overflow:auto; -webkit-overflow-scrolling:touch; padding:12px 12px calc(16px + var(--painel)); }
+  #cifra pre { margin:0; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; line-height:1.5; white-space:pre; display:inline-block; min-width:100%; }
+  .acorde { color:var(--gold); font-weight:700; }
+  .vazio { color:var(--mut); text-align:center; padding:30px 10px; line-height:1.6; }
+  #painel { position:fixed; left:0; right:0; bottom:0; background:var(--card); border-top:1px solid var(--line); box-shadow:0 -8px 24px rgba(0,0,0,.45); padding:8px 12px calc(10px + env(safe-area-inset-bottom)); z-index:10; }
+  #painel .lin { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+  #painel .mut { color:var(--mut); font-size:12px; }
+  .bar { height:6px; background:var(--card2); border-radius:6px; overflow:hidden; margin-top:6px; } .bar > i { display:block; height:100%; width:0; background:var(--green); transition:width .3s; }
+  .trk { display:grid; grid-template-columns: 74px 1fr 34px; gap:8px; align-items:center; font-size:13px; margin:4px 0; }
+  input[type=range] { width:100%; accent-color:var(--gold); }
+  .pos { display:grid; grid-template-columns: 40px 1fr 40px; gap:8px; align-items:center; font-size:12px; color:var(--mut); margin-top:4px; }
+  .esconde { display:none !important; }
+  a { color:var(--blue); }
+</style>
+</head>
+<body>
+<header>
+  <button id="voltar">‹ Voltar</button>
+  <div class="tit"><b id="titulo">Modo ensaio</b><small id="sub">cifra + música sem voz</small></div>
+</header>
+<div class="ctl" id="ctl">
+  <button id="letra">Cifra</button>
+  <span id="tomBox"><span style="color:var(--mut)">Tom</span> <button id="tomMenos" aria-label="Baixar o tom">−</button><span class="n" id="tom">0</span><button id="tomMais" aria-label="Subir o tom">+</button></span>
+  <span><span style="color:var(--mut)">Letra</span> <button id="fMenos" aria-label="Diminuir a letra">−</button><span class="n" id="fonte">17</span><button id="fMais" aria-label="Aumentar a letra">+</button></span>
+  <button id="rolar">▶ rolar</button>
+</div>
+<main id="cifra"><div class="vazio">Carregando…</div></main>
+
+<section id="painel" aria-label="Música do ensaio">
+  <!-- 1) escolher -->
+  <div id="pEscolher">
+    <div class="lin" style="justify-content:space-between"><b style="color:var(--gold);font-size:14px">Música do ensaio</b><span class="mut">fica só neste aparelho; nada é enviado</span></div>
+    <div class="lin" style="margin-top:6px">
+      <select id="modo" aria-label="Como separar"><option value="voz" selected>Sem voz (voz × instrumental)</option><option value="4">4 faixas (voz, bateria, baixo, outros)</option></select>
+      <button class="pri" id="btnArq">Escolher música</button>
+      <input type="file" id="arq" accept="audio/*,.mp3,.m4a,.wav,.aac,.flac,.ogg" hidden />
+    </div>
+    <p class="mut" style="margin:6px 0 0">Na primeira vez baixa o separador (166 MB, use Wi-Fi). Uma música de 4 min leva alguns minutos para ficar pronta.</p>
+  </div>
+  <!-- 2) processando -->
+  <div id="pProc" class="esconde">
+    <div class="lin" style="justify-content:space-between"><b id="procTit" style="font-size:14px">Preparando…</b><button id="btnCancel" style="padding:4px 10px">Cancelar</button></div>
+    <div class="bar"><i id="procBar"></i></div>
+    <p class="mut" id="procMsg" style="margin:6px 0 0">Mantenha esta tela aberta.</p>
+  </div>
+  <!-- 3) mixer -->
+  <div id="pMix" class="esconde">
+    <div class="lin">
+      <button class="pri" id="btnPlay" style="min-width:86px">▶ Tocar</button>
+      <button class="pill" data-preset="semvoz">Sem voz</button><button class="pill" data-preset="sovoz">Só voz</button><button class="pill" data-preset="tudo">Original</button>
+      <button id="btnMin" aria-label="Recolher o mixer" style="margin-left:auto;padding:5px 9px">▾</button>
+    </div>
+    <div class="pos"><span id="tAtual">0:00</span><input type="range" id="seek" min="0" max="1000" value="0" aria-label="Posição da música" /><span id="tTotal">0:00</span></div>
+    <div id="tracks"></div>
+    <div class="lin" style="margin-top:4px"><button id="btnTrocar" style="padding:5px 10px;font-size:13px">Trocar música</button><span class="mut" id="mixInfo"></span></div>
+  </div>
+</section>
+
+<script type="module">
+const $ = (id) => document.getElementById(id);
+const fmt = (s) => { s = Math.max(0, Math.floor(s || 0)); return Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0"); };
+
+// ================= Cifra (mesmas regras do app) =================
+const SH = ["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"];
+const ENH = { "Db":"C#","Eb":"D#","Gb":"F#","Ab":"G#","Bb":"A#","Cb":"B","Fb":"E","E#":"F","B#":"C" };
+function shiftRoot(root, steps){ let r=ENH[root]||root; let i=SH.indexOf(r); if(i<0) return root; return SH[((i+steps)%12+12)%12]; }
+const CH_RE = /^([A-G](?:#|b)?)((?:maj|min|sus|add|dim|aug|m|M|°|º|\+|\d|\(|\)|b|#|\.)*)(?:\/([A-G](?:#|b)?))?$/;
+function isChordToken(t){ if(!t) return false; return !!t.match(CH_RE); }
+function transposeToken(t, steps){ const m=t.match(CH_RE); if(!m) return t; let out=shiftRoot(m[1],steps)+(m[2]||""); if(m[3]) out+="/"+shiftRoot(m[3],steps); return out; }
+function isChordLine(line){ const toks=line.trim().split(/\s+/).filter(Boolean); if(!toks.length) return false; const c=toks.filter(isChordToken).length; return c/toks.length>=0.6; }
+function transposeText(text, steps){ if(!steps || !text) return text; return text.split("\n").map(l=> isChordLine(l) ? l.replace(/\S+/g, t=> isChordToken(t)?transposeToken(t,steps):t) : l).join("\n"); }
+const esc = (t) => String(t).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+const EXEMPLO = { t: "Exemplo (teste)", src: "Modo ensaio", tom: "Sol Maior", cifra: "   G              D\nSenhor, eu te ofereço\n   Em           C\nminha vida, meu louvor\n   G              D\nTudo o que sou e tenho\n   C          D       G\nentrego em tuas mãos, Senhor" };
+let song = null;
+try { song = JSON.parse(localStorage.getItem("mt_ensaio") || "null"); } catch (e) {}
+const exemplo = !song;
+if (!song) song = EXEMPLO;
+let steps = 0, letraOnly = false, fonte = 17, scroll = 0, raf = 0;
+try { fonte = Math.max(12, Math.min(30, Number(localStorage.getItem("mt_font")) || 17)); letraOnly = localStorage.getItem("mt_letra_only") === "1"; } catch (e) {}
+
+function renderCifra() {
+  $("titulo").textContent = (song.n != null ? song.n + " · " : "") + (song.t || "Música");
+  $("sub").textContent = exemplo ? "Abra uma música no app e toque em “Ensaiar sem voz” para usar a cifra dela." : (song.src || "") + (song.tom ? " · tom original " + song.tom : "");
+  $("letra").textContent = letraOnly ? "Só letra" : "Cifra"; $("letra").classList.toggle("on", letraOnly);
+  $("tomBox").style.display = letraOnly ? "none" : ""; $("tom").textContent = steps > 0 ? "+" + steps : steps; $("fonte").textContent = fonte;
+  if (song.cifra) {
+    const lines = transposeText(song.cifra, steps).split("\n").filter(l => !letraOnly || !isChordLine(l));
+    $("cifra").innerHTML = "<pre style='font-size:" + fonte + "px'>" + lines.map(l => isChordLine(l) ? "<div class='acorde'>" + (esc(l) || " ") + "</div>" : "<div>" + (esc(l) || " ") + "</div>").join("") + "</pre>";
+  } else if (song.u) {
+    $("cifra").innerHTML = "<div class='vazio'>A cifra desta música está em PDF.<br><a href='" + esc(song.u) + "' target='_blank' rel='noreferrer'>Abrir o PDF numa nova aba</a><br><br>A música separada continua tocando aqui.</div>";
+  } else {
+    $("cifra").innerHTML = "<div class='vazio'>Esta música ainda não tem cifra em texto.</div>";
+  }
+}
+$("letra").onclick = () => { letraOnly = !letraOnly; try { localStorage.setItem("mt_letra_only", letraOnly ? "1" : "0"); } catch (e) {} renderCifra(); };
+$("tomMenos").onclick = () => { steps--; renderCifra(); }; $("tomMais").onclick = () => { steps++; renderCifra(); };
+$("fMenos").onclick = () => { fonte = Math.max(12, fonte - 1); try { localStorage.setItem("mt_font", fonte); } catch (e) {} renderCifra(); };
+$("fMais").onclick = () => { fonte = Math.min(30, fonte + 1); try { localStorage.setItem("mt_font", fonte); } catch (e) {} renderCifra(); };
+const SPEEDS = [0, 18, 32, 52, 80, 120];
+$("rolar").onclick = () => { scroll = (scroll + 1) % SPEEDS.length; $("rolar").textContent = scroll ? "❚❚ rolar " + scroll : "▶ rolar"; $("rolar").classList.toggle("on", !!scroll); if (scroll) rolar(); };
+function rolar() { cancelAnimationFrame(raf); let last = performance.now(), acc = 0; const step = (now) => { if (!scroll) return; const dt = Math.min(.05, (now - last) / 1000); last = now; acc += SPEEDS[scroll] * dt; if (acc >= 1) { const px = Math.floor(acc); $("cifra").scrollTop += px; acc -= px; } raf = requestAnimationFrame(step); }; raf = requestAnimationFrame(step); }
+$("voltar").onclick = () => { limpar(); if (history.length > 1 && document.referrer.startsWith(location.origin)) history.back(); else location.href = "../"; };
+renderCifra();
+
+// o painel de baixo reserva espaço no fim da cifra
+new ResizeObserver(() => document.documentElement.style.setProperty("--painel", $("painel").offsetHeight + "px")).observe($("painel"));
+
+// ================= Separação (no próprio aparelho) =================
+const SR = 44100;
+const MODELS = {
+  voz: { id: "htdemucs_ft_vocals_fp16", mb: 166, url: "https://huggingface.co/StemSplitio/htdemucs-ft-vocals-onnx/resolve/main/htdemucs_ft_vocals_fp16weights.onnx", rows: [3], names: ["Voz"], inst: true },
+  4:   { id: "htdemucs_fp16", mb: 166, url: "https://huggingface.co/StemSplitio/htdemucs-onnx/resolve/main/htdemucs_fp16weights.onnx", rows: [3, 0, 1, 2], names: ["Voz", "Bateria", "Baixo", "Outros"] },
+};
+const worker = new Worker(new URL("./worker.js", import.meta.url), { type: "module" });
+let seq = 0; const pending = new Map(); let onProg = null;
+worker.onmessage = (e) => { const m = e.data; if (m.type === "progress") { onProg && onProg(m.ev); return; } const p = pending.get(m.id); if (!p) return; pending.delete(m.id); m.type === "error" ? p.reject(new Error(m.error)) : p.resolve(m); };
+const call = (type, data = {}, transfer = []) => new Promise((resolve, reject) => { const id = ++seq; pending.set(id, { resolve, reject }); worker.postMessage({ type, id, ...data }, transfer); });
+
+const DB = () => new Promise((res, rej) => { const r = indexedDB.open("teste-separacao-voz", 1); r.onupgradeneeded = () => r.result.createObjectStore("modelo"); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); });
+const dbOp = async (mode, fn) => { const db = await DB(); return new Promise((res, rej) => { const q = fn(db.transaction("modelo", mode).objectStore("modelo")); q.onsuccess = () => res(q.result || null); q.onerror = () => rej(q.error); }); };
+let modeloPronto = null;   // id do modelo preparado no worker
+let cancelado = false, wake = null;
+const tela = (qual) => { for (const k of ["pEscolher", "pProc", "pMix"]) $(k).classList.toggle("esconde", k !== qual); };
+const proc = (tit, frac, msg) => { $("procTit").textContent = tit; if (frac != null) $("procBar").style.width = Math.round(frac * 100) + "%"; if (msg != null) $("procMsg").textContent = msg; };
+async function manterTelaLigada(on) { try { if (on && navigator.wakeLock) wake = await navigator.wakeLock.request("screen"); else if (!on && wake) { await wake.release(); wake = null; } } catch (e) {} }
+
+async function prepararModelo(M) {
+  if (modeloPronto === M.id) return;
+  let bytes = await dbOp("readonly", s => s.get(M.id)).catch(() => null);
+  if (bytes) bytes = new Uint8Array(bytes);
+  else {
+    const r = await fetch(M.url); if (!r.ok) throw new Error("não consegui baixar o separador (HTTP " + r.status + ")");
+    const total = Number(r.headers.get("content-length")) || M.mb * 1e6, rd = r.body.getReader(), parts = []; let got = 0;
+    for (;;) { if (cancelado) throw new Error("cancelado"); const { done, value } = await rd.read(); if (done) break; parts.push(value); got += value.length; proc("Baixando o separador (só na primeira vez)…", got / total, Math.round(got / 1e6) + " de " + M.mb + " MB"); }
+    bytes = new Uint8Array(got); let o = 0; for (const p of parts) { bytes.set(p, o); o += p.length; }
+    try { await dbOp("readwrite", s => s.put(bytes.buffer, M.id)); } catch (e) {}
+  }
+  proc("Preparando o separador…", 1, "Alguns segundos.");
+  await call("load", { modelBytes: bytes });
+  modeloPronto = M.id;
+}
+
+$("btnArq").onclick = () => $("arq").click();
+$("arq").onchange = () => { const f = $("arq").files[0]; if (f) separar(f); $("arq").value = ""; };
+$("btnCancel").onclick = () => { cancelado = true; worker.terminate(); location.reload(); };
+
+let ctx = null, tracks = [], sources = [], playing = false, startAt = 0, offset = 0, dur = 0, tick = 0;
+async function separar(file) {
+  const M = MODELS[$("modo").value];
+  cancelado = false; tela("pProc"); proc("Lendo a música…", 0, "Mantenha esta tela aberta."); manterTelaLigada(true);
+  try {
+    if (!ctx) ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const dec = await ctx.decodeAudioData(await file.arrayBuffer());
+    let buf = dec;
+    if (dec.sampleRate !== SR || dec.numberOfChannels !== 2) { const off = new OfflineAudioContext(2, Math.ceil(dec.duration * SR), SR); const s = off.createBufferSource(); s.buffer = dec; s.connect(off.destination); s.start(); buf = await off.startRendering(); }
+    let L = buf.getChannelData(0).slice(), R = buf.getChannelData(1).slice();
+    const n = L.length;
+    await prepararModelo(M);
+    const t0 = performance.now();
+    onProg = (ev) => {
+      const passou = (performance.now() - t0) / 1000, falta = passou / ev.bloco * (ev.total - ev.bloco);
+      proc("Separando a música… " + Math.round(ev.bloco / ev.total * 100) + "%", ev.bloco / ev.total, "Faltam cerca de " + fmt(falta) + ". Mantenha esta tela aberta.");
+    };
+    const mixL = M.inst ? L.slice() : null, mixR = M.inst ? R.slice() : null;   // original, só para calcular o instrumental
+    const r = await call("separate", { left: L, right: R, rows: M.rows }, [L.buffer, R.buffer]);
+    L = R = null;
+    const mk = (l, rr) => { const b = ctx.createBuffer(2, n, SR); b.copyToChannel(l, 0); b.copyToChannel(rr, 1); return b; };
+    tracks = M.names.map((name, j) => ({ name, buf: mk(r.stems[2 * j], r.stems[2 * j + 1]), vol: 1 }));
+    if (M.inst) {
+      const vL = r.stems[0], vR = r.stems[1];
+      for (let k = 0; k < n; k++) { mixL[k] -= vL[k]; mixR[k] -= vR[k]; }   // instrumental = original − voz
+      tracks.push({ name: "Instrumental", buf: mk(mixL, mixR), vol: 1 });
+    }
+    dur = n / SR; montarMixer(file.name, (performance.now() - t0) / 1000);
+  } catch (e) {
+    if (cancelado) return;
+    tela("pEscolher"); alert("Não foi possível separar: " + e.message);
+  } finally { onProg = null; manterTelaLigada(false); }
+}
+
+function montarMixer(nome, segs) {
+  $("tracks").innerHTML = "";
+  for (const tk of tracks) {
+    const row = document.createElement("div"); row.className = "trk";
+    row.innerHTML = `<span>${tk.name}</span><input type="range" min="0" max="100" value="100" aria-label="Volume ${tk.name}" /><span class="mut">100</span>`;
+    tk.slider = row.querySelector("input"); tk.pct = row.querySelector(".mut"); tk.slider.oninput = () => setVol(tk, tk.slider.value / 100);
+    $("tracks").appendChild(row);
+  }
+  $("tTotal").textContent = fmt(dur); $("tAtual").textContent = "0:00"; $("seek").value = 0; offset = 0;
+  $("mixInfo").textContent = "pronta em " + fmt(segs);
+  tela("pMix"); aplicarPreset("semvoz");
+}
+function setVol(tk, v) { tk.vol = v; tk.slider.value = Math.round(v * 100); tk.pct.textContent = Math.round(v * 100); if (tk.gain) tk.gain.gain.setTargetAtTime(v, ctx.currentTime, 0.02); }
+function aplicarPreset(p) { for (const tk of tracks) setVol(tk, p === "tudo" ? 1 : p === "sovoz" ? (tk.name === "Voz" ? 1 : 0) : (tk.name === "Voz" ? 0 : 1)); document.querySelectorAll("[data-preset]").forEach(b => b.classList.toggle("on", b.dataset.preset === p)); }
+document.querySelectorAll("[data-preset]").forEach(b => b.onclick = () => aplicarPreset(b.dataset.preset));
+
+function tocar() {
+  if (!tracks.length) return; ctx.resume(); if (offset >= dur - 0.05) offset = 0;
+  const when = ctx.currentTime + 0.06;
+  sources = tracks.map(tk => { const s = ctx.createBufferSource(); s.buffer = tk.buf; tk.gain = ctx.createGain(); tk.gain.gain.value = tk.vol; s.connect(tk.gain).connect(ctx.destination); s.start(when, offset); return s; });
+  sources[0].onended = () => { if (playing) { parar(true); offset = 0; atualizarPos(); } };
+  startAt = when; playing = true; $("btnPlay").textContent = "❚❚ Pausar";
+  const loop = () => { if (!playing) return; atualizarPos(); tick = requestAnimationFrame(loop); }; loop();
+}
+function parar(pausar) { if (playing) offset += ctx.currentTime - startAt; sources.forEach(s => { try { s.onended = null; s.stop(); } catch (e) {} }); sources = []; playing = false; cancelAnimationFrame(tick); $("btnPlay").textContent = "▶ Tocar"; if (!pausar) offset = 0; }
+function atualizarPos() { const t = Math.min(dur, playing ? offset + ctx.currentTime - startAt : offset); $("tAtual").textContent = fmt(t); if (!seeking) $("seek").value = Math.round(t / Math.max(dur, 0.01) * 1000); }
+let seeking = false;
+$("seek").oninput = () => { seeking = true; $("tAtual").textContent = fmt($("seek").value / 1000 * dur); };
+$("seek").onchange = () => { const era = playing; if (playing) parar(true); offset = $("seek").value / 1000 * dur; seeking = false; if (era) tocar(); else atualizarPos(); };
+$("btnPlay").onclick = () => playing ? parar(true) : tocar();
+$("btnMin").onclick = () => { const r = $("tracks").classList.toggle("esconde"); $("btnMin").textContent = r ? "▴" : "▾"; };
+$("btnTrocar").onclick = () => { limpar(); tela("pEscolher"); };
+
+// ================= Nada é salvo: ao sair, a música e as faixas são apagadas =================
+function limpar() { try { parar(false); } catch (e) {} tracks = []; $("tracks").innerHTML = ""; }
+window.addEventListener("pagehide", limpar);
+// Autoteste (só no endereço local de teste, ?autoteste=1): separa a faixa de teste e manda o andamento ao servidor local
+if (new URLSearchParams(location.search).get("autoteste") === "1" && location.hostname === "127.0.0.1") {
+  const reg = (m) => fetch("__registro?" + encodeURIComponent(m)).catch(() => {});
+  const p0 = proc; let ult = "";
+  window.proc = null;
+  const obs = new MutationObserver(() => { const t = $("procTit").textContent + " | " + $("procMsg").textContent; if (t !== ult) { ult = t; reg(t); } }); obs.observe($("pProc"), { subtree: true, childList: true, characterData: true });
+  const fim = new MutationObserver(() => { if (!$("pMix").classList.contains("esconde")) { reg("PRONTO " + JSON.stringify(window.__ensaio.estado()) + " " + $("mixInfo").textContent); fim.disconnect(); } }); fim.observe($("pMix"), { attributes: true });
+  window.addEventListener("error", (e) => reg("ERRO " + e.message));
+  const _alert = window.alert; window.alert = (m) => { reg("ALERTA " + m); };
+  fetch("teste-cc0.mp3").then(r => r.blob()).then(b => window.__ensaio.separar(b, "teste-cc0.mp3", new URLSearchParams(location.search).get("m") || "voz"));
+}
+window.__ensaio = { separar: (blob, nome, modo) => { if (modo) $("modo").value = modo; return separar(new File([blob], nome || "teste.mp3")); }, estado: () => ({ faixas: tracks.map(t => t.name), dur, painel: [...document.querySelectorAll("#painel > div")].filter(d => !d.classList.contains("esconde")).map(d => d.id) }) };
+</script>
+</body>
+</html>
