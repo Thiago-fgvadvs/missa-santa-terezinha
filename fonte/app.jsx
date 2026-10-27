@@ -918,7 +918,9 @@ function MiniPlayer({ media, overlay, navRef, onClose }) {
         ) : (
           <div className="px-3 pb-2">
             <iframe title={media.title} src={src} style={{ border: 0, width: "100%", height: 80, borderRadius: 12, display: "block" }} allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture" loading="lazy" />
-            <p className="mt-1" style={{ color: C.mut, fontSize: 10.5 }}>Sem login no Spotify neste navegador, toca só 30 s. Para a música inteira, use o botão de abrir.</p>
+            {/* No iPhone o player embutido só toca prévia (o Safari esconde o login do Spotify); a música inteira toca no app Spotify, em segundo plano */}
+            <a href={media.url} target="_blank" rel="noreferrer" style={{ background: C.green, color: "#04261b", marginTop: 8 }} className="w-full py-2.5 rounded-xl font-semibold flex items-center justify-center gap-1"><Play size={16} /> Música inteira no app Spotify</a>
+            <p className="mt-1" style={{ color: C.mut, fontSize: 10.5 }}>Aqui toca só uma prévia de 30 s. No app Spotify a música toca inteira e a cifra continua aberta aqui — para voltar, toque em “◀” no canto do Spotify.</p>
           </div>
         )}
       </div>
