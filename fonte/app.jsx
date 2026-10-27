@@ -30,6 +30,7 @@ const Unlock=_ic('<rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path
 const Youtube=_ic('<path d="M2.5 17a24.12 24.12 0 0 1 0-10 2 2 0 0 1 1.4-1.4 49.56 49.56 0 0 1 16.2 0A2 2 0 0 1 21.5 7a24.12 24.12 0 0 1 0 10 2 2 0 0 1-1.4 1.4 49.55 49.55 0 0 1-16.2 0A2 2 0 0 1 2.5 17"/><path d="m10 15 5-3-5-3z"/>');
 const Spotify=_ic('<circle cx="12" cy="12" r="10"/><path d="M7.5 14.5c2.5-1 6-0.8 8.5 0.7"/><path d="M7 11.3c3-1.1 7-0.9 10 1"/><path d="M7.2 8.2c3.4-1.1 7.6-0.8 10.3 1.1"/>');
 const Upload=_ic('<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" x2="12" y1="3" y2="15"/>');
+const Headphones=_ic('<path d="M3 14h3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-7a9 9 0 0 1 18 0v7a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3"/>');
 const SB = window.supabase.createClient(window.SUPA_URL, window.SUPA_KEY);
 
 // ====================== Tema ======================
@@ -119,6 +120,8 @@ function App() {
   const [editor, setEditor] = useState(() => !!TOK.get());
   const [lockOpen, setLockOpen] = useState(false);
   const [saveErr, setSaveErr] = useState("");
+  const [nova, setNova] = useState(null); // rascunho de música nova vindo do Modo ensaio (letra + cifra)
+  const novaPend = useRef(null);          // espera a senha de edição para abrir o rascunho
   const saveT = useRef({});
   const navRef = useRef(null);
 
@@ -144,6 +147,17 @@ function App() {
     return () => { onSaveFail = null; };
   }, [loadAll]);
   useEffect(() => { loadAll(); const ch = SB.channel("missa_kv_rt").on("postgres_changes", { event: "*", schema: "public", table: "missa_kv" }, () => loadAll()).subscribe(); return () => { try { SB.removeChannel(ch); } catch(e){} }; }, [loadAll]);
+
+  useEffect(() => {
+    if (loading) return;
+    let q = null; try { q = new URLSearchParams(location.search); } catch (e) {}
+    if (!q || q.get("nova") !== "1") return;
+    try { history.replaceState(null, "", location.pathname); } catch (e) {}
+    let d = null; try { d = JSON.parse(localStorage.getItem("mt_nova") || "null"); } catch (e) {}
+    if (!d || !d.cifra) return;
+    setScreen("repertorio");
+    if (TOK.get()) setNova(d); else { novaPend.current = d; setLockOpen(true); }
+  }, [loading]);
 
   const debounced = (key, value, setter) => {
     setter(value);
@@ -183,7 +197,7 @@ function App() {
   // A senha é conferida no banco; o aparelho guarda só o token da sessão de edição.
   const unlock = async (entered) => {
     const r = await rpc("missa_entrar", { p_pin: (entered || "").trim() });
-    if (r && r.ok && r.token) { TOK.set(r.token); setEditor(true); setHasPin(true); setSaveErr(""); return ""; }
+    if (r && r.ok && r.token) { TOK.set(r.token); setEditor(true); setHasPin(true); setSaveErr(""); if (novaPend.current) { setNova(novaPend.current); novaPend.current = null; } return ""; }
     return (r && r.erro) || "Não foi possível conferir a senha.";
   };
   const lock = () => { const tk = TOK.get(); if (tk) rpc("missa_sair", { p_token: tk }); TOK.set(null); setEditor(false); };
@@ -224,14 +238,15 @@ function App() {
       </div>
 
       <nav ref={navRef} style={{ background: C.card, borderTop: `1px solid ${C.line}` }} className="fixed bottom-0 left-0 right-0 z-20">
-        <div className="max-w-2xl mx-auto grid grid-cols-4">
+        <div className="max-w-2xl mx-auto grid" style={{ gridTemplateColumns: "repeat(5, minmax(0, 1fr))" }}>
           {[
             { k: "repertorio", ic: Music, lb: "Repertório" },
             { k: "missas", ic: Calendar, lb: "Missas" },
             { k: "equipes", ic: Users, lb: "Equipes" },
+            { k: "ensaio", ic: Headphones, lb: "Ensaio" },
             { k: "ajustes", ic: Settings, lb: "Ajustes" },
           ].map(({ k, ic: Ic, lb }) => (
-            <button key={k} onClick={() => setScreen(k)} className="py-2.5 flex flex-col items-center gap-0.5" style={{ color: screen === k ? C.gold : C.mut }}>
+            <button key={k} onClick={() => k === "ensaio" ? abrirEnsaioLivre() : setScreen(k)} className="py-2.5 flex flex-col items-center gap-0.5" style={{ color: screen === k ? C.gold : C.mut }}>
               <Ic size={20} /><span style={{ fontSize: 10.5 }}>{lb}</span>
             </button>
           ))}
@@ -241,6 +256,7 @@ function App() {
       {(playing || show) && <Player song={show ? songById[show.ids[show.i]] : songById[playing]} playlist={show ? show.ids : null} index={show ? show.i : 0} onNav={(ni)=> setShow(sh => sh ? { ...sh, i: Math.max(0, Math.min(ni, sh.ids.length - 1)) } : sh)} songById={songById} font={font} setFont={setFont} onMedia={openMedia} settings={settings} saveSettings={saveSettings} updateSong={updateSong} openViewer={(u,t)=>setViewer({url:u,title:t})} editor={editor} onClose={() => { if (show) setShow(null); else setPlaying(null); }} />}
       {viewer && <PdfViewer url={viewer.url} title={viewer.title} onClose={() => setViewer(null)} />}
       {editSong && <AddSong initial={editSong} onClose={() => setEditSong(null)} onSave={(d) => { updateSong(editSong.id, d); setEditSong(null); }} />}
+      {nova && <AddSong preset={nova} onClose={() => setNova(null)} onSave={(d) => { addSong(d); try { localStorage.removeItem("mt_nova"); } catch (e) {} setNova(null); }} />}
       {media && <MiniPlayer media={media} overlay={!!(playing || show || viewer || editMass)} navRef={navRef} onClose={() => setMedia(null)} />}
       {lockOpen && <LockModal hasPin={hasPin} onClose={() => setLockOpen(false)} onSubmit={(v) => unlock(v)} />}
       {editMass && <MassEditor mkey={editMass} masses={masses} saveMasses={saveMasses} teams={teams} songs={songs} songById={songById} onPlay={openSong} onShow={openShow} onMedia={openMedia} onEdit={(s)=>setEditSong(s)} editor={editor} onClose={() => setEditMass(null)} />}
@@ -798,10 +814,10 @@ function PinChange({ changePin }) {
 const inp = { background: C.bg, border: `1px solid ${C.line}`, color: C.txt, borderRadius: 12, padding: "10px 12px", outline: "none", width: "100%" };
 function Field({ label, children }) { return (<label className="block"><span className="text-xs block mb-1" style={{ color: C.mut }}>{label}</span>{children}</label>); }
 
-function AddSong({ onClose, onSave, initial }) {
-  const isEdit = !!initial;
-  const [d, setD] = useState(initial
-    ? { t: initial.t || "", n: initial.n != null ? String(initial.n) : "", tom: initial.tom || "", m: initial.m || "Geral", u: initial.u || "", yt: initial.yt || "", sp: initial.sp || "", cifra: initial.cifra || "" }
+function AddSong({ onClose, onSave, initial, preset }) {
+  const isEdit = !!initial, base = initial || preset;
+  const [d, setD] = useState(base
+    ? { t: base.t || "", n: base.n != null ? String(base.n) : "", tom: base.tom || "", m: base.m || "Geral", u: base.u || "", yt: base.yt || "", sp: base.sp || "", cifra: base.cifra || "" }
     : { t: "", n: "", tom: "", m: "Geral", u: "", yt: "", sp: "", cifra: "" });
   const [up, setUp] = useState("");
   const set = (k, v) => setD(p => ({ ...p, [k]: v }));
@@ -827,7 +843,7 @@ function AddSong({ onClose, onSave, initial }) {
   return (
     <div style={{ background: "rgba(0,0,0,0.6)" }} className="fixed inset-0 z-50 flex items-end sm:items-center justify-center">
       <div style={{ background: C.card, border: `1px solid ${C.line}` }} className="w-full max-w-lg rounded-t-2xl sm:rounded-2xl max-h-[90vh] overflow-y-auto p-4 space-y-3">
-        <div className="flex items-center justify-between"><p className="font-semibold" style={{ color: C.gold }}>{isEdit ? "Editar música" : "Nova música"}</p><button onClick={onClose}><X size={18} style={{ color: C.mut }} /></button></div>
+        <div className="flex items-center justify-between"><p className="font-semibold" style={{ color: C.gold }}>{isEdit ? "Editar música" : preset ? "Nova música (do Modo ensaio)" : "Nova música"}</p><button onClick={onClose}><X size={18} style={{ color: C.mut }} /></button></div>
         <Field label="Título *"><input value={d.t} onChange={(e) => set("t", e.target.value)} style={inp} autoFocus /></Field>
         <div className="flex gap-2">
           <Field label="Nº (opcional)"><input value={d.n} onChange={(e) => set("n", e.target.value)} style={inp} inputMode="numeric" /></Field>
@@ -867,10 +883,14 @@ function PdfViewer({ url, title, onClose }) {
 }
 // ====================== Modo ensaio (página própria: separa a música no aparelho; nada é salvo) ======================
 // Fica em /ensaio/ porque precisa de isolamento (COOP/COEP) para usar vários núcleos, o que quebraria os vídeos embutidos aqui.
+// Aba Ensaio: abre sem música do app (escolhe uma do aparelho, separa, gera a cifra e pode salvar como música nova).
+// window.ENSAIO_URL só existe na cópia de teste (/teste-app/), que usa /ensaio-teste/.
+const ensaioUrl = (extra) => { const b = window.ENSAIO_URL || "ensaio/"; return extra ? b + (b.indexOf("?") >= 0 ? "&" : "?") + extra : b; };
 function abrirEnsaio(s) {
   try { localStorage.setItem("mt_ensaio", JSON.stringify({ id: s.id, n: s.n, t: s.t, tom: s.tom || "", src: s.src || "", cifra: s.cifra || "", u: s.u || "" })); } catch (e) {}
-  location.href = "ensaio/";
+  location.href = ensaioUrl();
 }
+function abrirEnsaioLivre() { location.href = ensaioUrl("livre=1"); }
 
 // ====================== Mini player (YouTube / Spotify junto da cifra) ======================
 function ytId(url) { const m = String(url || "").match(/(?:youtu\.be\/|youtube\.com\/(?:watch\?v=|embed\/|shorts\/|live\/)|[?&]v=)([A-Za-z0-9_-]{6,})/); return m ? m[1] : ""; }

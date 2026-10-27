@@ -48,6 +48,9 @@ self.onmessage = async (e) => {
         self.postMessage({ type: "progress", ev: { bloco: i + 1, total: nChunks, ms: Math.round(performance.now() - t), faixas: tensor.dims ? tensor.dims[1] : null } });
       }
       for (const [oL, oR] of out) for (let s = 0; s < total; s++) { const p = Math.max(peso[s], 1e-8); oL[s] /= p; oR[s] /= p; }
+      // d.inst: devolve também o instrumental (= original − primeira faixa), calculado aqui sobre a própria entrada,
+      // para a página não precisar guardar uma cópia da música inteira (economiza memória no celular)
+      if (d.inst) { const [vL, vR] = out[0]; for (let s = 0; s < total; s++) { L[s] -= vL[s]; R[s] -= vR[s]; } out.push([L, R]); }
       const flat = out.flat();
       self.postMessage({ id, type, stems: flat }, { transfer: flat.map(a => a.buffer) });
     }
