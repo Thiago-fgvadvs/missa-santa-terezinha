@@ -436,7 +436,7 @@ function Player({ song, settings, saveSettings, updateSong, openViewer, editor, 
           {scroll > 0 && <input type="range" min="1" max="6" value={scroll} onChange={(e) => setScroll(Number(e.target.value))} className="w-20" />}
           {scroll > 0 && <span style={{ color: C.gold, minWidth: 14 }} className="text-center font-bold">{scroll}</span>}
         </div>
-        {playlist ? <button onClick={gerarPDF} title="Gerar PDF da missa" style={{ background: C.card, color: C.txt }} className="px-2.5 py-1.5 rounded-lg font-semibold flex items-center gap-1"><FileText size={13} /> PDF</button> : null}<div className="ml-auto flex items-center gap-2">{song.yt ? <button onClick={() => onMedia(song, "yt")} title="Assistir vídeo aqui, junto da cifra" style={{ background: C.danger, color: "#2a0610" }} className="px-2.5 py-1.5 rounded-lg font-semibold flex items-center gap-1"><Youtube size={14} /> Vídeo</button> : null}{song.sp ? <button onClick={() => onMedia(song, "sp")} title="Ouvir aqui, junto da cifra" style={{ background: C.green, color: "#04261b" }} className="px-2.5 py-1.5 rounded-lg font-semibold flex items-center gap-1"><Spotify size={14} /> Spotify</button> : null}{song.u ? <button onClick={() => openViewer(song.u, song.t)} style={{ background: C.blue, color: "#04203f" }} className="px-2.5 py-1.5 rounded-lg font-semibold flex items-center gap-1"><FileText size={13} /> Ver cifra</button> : null}</div>
+        {playlist ? <button onClick={gerarPDF} title="Gerar PDF da missa" style={{ background: C.card, color: C.txt }} className="px-2.5 py-1.5 rounded-lg font-semibold flex items-center gap-1"><FileText size={13} /> PDF</button> : null}<button onClick={() => abrirEnsaio(song)} title="Ensaiar com a música sem voz (separada neste aparelho)" style={{ background: C.violet, color: "#160b2b" }} className="px-2.5 py-1.5 rounded-lg font-semibold flex items-center gap-1"><Music size={13} /> Ensaiar sem voz</button><div className="ml-auto flex items-center gap-2">{song.yt ? <button onClick={() => onMedia(song, "yt")} title="Assistir vídeo aqui, junto da cifra" style={{ background: C.danger, color: "#2a0610" }} className="px-2.5 py-1.5 rounded-lg font-semibold flex items-center gap-1"><Youtube size={14} /> Vídeo</button> : null}{song.sp ? <button onClick={() => onMedia(song, "sp")} title="Ouvir aqui, junto da cifra" style={{ background: C.green, color: "#04261b" }} className="px-2.5 py-1.5 rounded-lg font-semibold flex items-center gap-1"><Spotify size={14} /> Spotify</button> : null}{song.u ? <button onClick={() => openViewer(song.u, song.t)} style={{ background: C.blue, color: "#04203f" }} className="px-2.5 py-1.5 rounded-lg font-semibold flex items-center gap-1"><FileText size={13} /> Ver cifra</button> : null}</div>
       </div>
 
       {editing ? (
@@ -865,6 +865,13 @@ function PdfViewer({ url, title, onClose }) {
     </div>
   );
 }
+// ====================== Modo ensaio (página própria: separa a música no aparelho; nada é salvo) ======================
+// Fica em /ensaio/ porque precisa de isolamento (COOP/COEP) para usar vários núcleos, o que quebraria os vídeos embutidos aqui.
+function abrirEnsaio(s) {
+  try { localStorage.setItem("mt_ensaio", JSON.stringify({ id: s.id, n: s.n, t: s.t, tom: s.tom || "", src: s.src || "", cifra: s.cifra || "", u: s.u || "" })); } catch (e) {}
+  location.href = "ensaio/";
+}
+
 // ====================== Mini player (YouTube / Spotify junto da cifra) ======================
 function ytId(url) { const m = String(url || "").match(/(?:youtu\.be\/|youtube\.com\/(?:watch\?v=|embed\/|shorts\/|live\/)|[?&]v=)([A-Za-z0-9_-]{6,})/); return m ? m[1] : ""; }
 function spEmbed(url) { const m = String(url || "").match(/open\.spotify\.com\/(?:intl-[a-zA-Z-]+\/)?(?:embed\/)?(track|album|playlist|episode)\/([A-Za-z0-9]+)/); return m ? "https://open.spotify.com/embed/" + m[1] + "/" + m[2] + "?utm_source=generator" : ""; }
