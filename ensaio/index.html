@@ -65,11 +65,19 @@
   <div id="pEscolher">
     <div class="lin" style="justify-content:space-between"><b style="color:var(--gold);font-size:14px">Música do ensaio</b><span class="mut">fica só neste aparelho; nada é enviado</span></div>
     <div class="lin" style="margin-top:6px">
-      <select id="modo" aria-label="Como separar"><option value="voz" selected>Sem voz (voz × instrumental)</option><option value="4">4 faixas (voz, bateria, baixo, outros)</option></select>
       <button class="pri" id="btnArq">Escolher música</button>
       <input type="file" id="arq" accept="audio/*,.mp3,.m4a,.wav,.aac,.flac,.ogg" hidden />
     </div>
-    <p class="mut" style="margin:6px 0 0">Na primeira vez baixa o separador (166 MB, use Wi-Fi). Uma música de 4 min leva alguns minutos para ficar pronta.</p>
+    <p class="mut" style="margin:6px 0 0">Depois você escolhe: gerar a cifra (rápido) e/ou separar a voz para ensaiar (demorado).</p>
+  </div>
+  <!-- 1b) música escolhida: separar é opcional -->
+  <div id="pArquivo" class="esconde">
+    <div class="lin" style="justify-content:space-between;flex-wrap:nowrap"><b id="arqNome" style="font-size:14px;min-width:0;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Música</b><button id="btnTrocar2" style="padding:4px 10px;font-size:13px">Trocar</button></div>
+    <div class="lin" style="margin-top:8px">
+      <button class="pri" id="btnSeparar">Separar para ensaiar</button>
+      <select id="modo" aria-label="Como separar"><option value="voz" selected>Sem voz (voz × instrumental)</option><option value="4">4 faixas (voz, bateria, baixo, outros)</option></select>
+    </div>
+    <p class="mut" style="margin:6px 0 0">Separar é a parte demorada (alguns minutos; na 1ª vez baixa 166 MB). Para só a cifra, não precisa separar.</p>
   </div>
   <!-- 2) processando -->
   <div id="pProc" class="esconde">
@@ -87,15 +95,21 @@
     <div class="pos"><span id="tAtual">0:00</span><input type="range" id="seek" min="0" max="1000" value="0" aria-label="Posição da música" /><span id="tTotal">0:00</span></div>
     <div id="tracks"></div>
     <div class="lin" style="margin-top:4px"><button id="btnTrocar" style="padding:5px 10px;font-size:13px">Trocar música</button><span class="mut" id="mixInfo"></span></div>
-    <!-- 4) gerar cifra (acordes + letra) a partir da música separada -->
+  </div>
+  <!-- 4) cifra: acordes na hora (da música original) ou completa (acordes + letra; a letra precisa da voz separada) -->
+  <div id="pCifra" class="esconde">
     <div class="sep"></div>
     <div id="gBox">
       <div class="lin">
-        <button class="ok" id="btnGerar">✎ Gerar cifra</button>
+        <button id="btnAcordes">♪ Acordes na hora</button>
+        <button class="ok" id="btnGerar">✎ Cifra completa (acordes + letra)</button>
+      </div>
+      <div class="lin" style="margin-top:6px">
+        <span class="mut">Letra:</span>
         <select id="gLang" aria-label="Idioma da letra"><option value="portuguese" selected>português</option><option value="english">inglês</option><option value="spanish">espanhol</option></select>
         <select id="gAsr" aria-label="Qualidade da letra"><option value="onnx-community/whisper-base_timestamped" selected>padrão (77 MB)</option><option value="onnx-community/whisper-small_timestamped">melhor (249 MB, mais lento)</option></select>
       </div>
-      <p class="mut" style="margin:6px 0 0">Escreve os acordes e a letra automaticamente. É um rascunho: revise em ✎ Editar antes de salvar.</p>
+      <p class="mut" id="gDica" style="margin:6px 0 0">Escreve os acordes e a letra automaticamente. É um rascunho: revise em ✎ Editar antes de salvar.</p>
     </div>
     <div id="gProc" class="esconde">
       <div class="lin" style="justify-content:space-between"><b id="gTit" style="font-size:14px">Preparando…</b><span class="mut" id="gRel">0:00</span></div>
@@ -227,7 +241,13 @@ async function abrirMotor(arquivo) {
 const DB = () => new Promise((res, rej) => { const r = indexedDB.open("teste-separacao-voz", 1); r.onupgradeneeded = () => r.result.createObjectStore("modelo"); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); });
 const dbOp = async (mode, fn) => { const db = await DB(); return new Promise((res, rej) => { const q = fn(db.transaction("modelo", mode).objectStore("modelo")); q.onsuccess = () => res(q.result || null); q.onerror = () => rej(q.error); }); };
 let cancelado = false, wake = null, sep = null, letraM = null;
-const tela = (qual) => { for (const k of ["pEscolher", "pProc", "pMix"]) $(k).classList.toggle("esconde", k !== qual); };
+const tela = (qual) => {
+  for (const k of ["pEscolher", "pArquivo", "pProc", "pMix"]) $(k).classList.toggle("esconde", k !== qual);
+  $("pCifra").classList.toggle("esconde", qual !== "pArquivo" && qual !== "pMix");
+  $("gDica").textContent = tracks.length
+    ? "A voz já está separada: a cifra completa sai em segundos. É um rascunho: revise em ✎ Editar."
+    : "Acordes na hora: segundos, direto da música. Cifra completa: separa a voz primeiro (alguns minutos) e já deixa a música pronta para ensaiar sem voz.";
+};
 // relógio + aviso de "parece parado" (sem sinal do processamento por 90 s)
 function cronometro(relId, msgId) {
   const ini = performance.now(); let ult = ini, base = "";
@@ -254,7 +274,17 @@ async function carregarSeparador(M) {
 }
 
 $("btnArq").onclick = () => $("arq").click();
-$("arq").onchange = () => { const f = $("arq").files[0]; if (f) separar(f); $("arq").value = ""; };
+let arquivo = null;   // música escolhida (fica só na memória desta tela)
+function escolher(f) {
+  limpar(); arquivo = f;
+  nomeArq = (f.name || "").replace(/\.[a-z0-9]{2,4}$/i, "").replace(/[_]+/g, " ").trim();
+  $("arqNome").textContent = "🎵 " + (nomeArq || "música escolhida");
+  $("gProc").classList.add("esconde"); $("gBox").classList.remove("esconde"); $("btnGerar").disabled = false;
+  tela("pArquivo");
+}
+$("arq").onchange = () => { const f = $("arq").files[0]; if (f) escolher(f); $("arq").value = ""; };
+$("btnSeparar").onclick = () => { if (arquivo) separar(arquivo); };
+$("btnTrocar2").onclick = () => { limpar(); arquivo = null; tela("pEscolher"); };
 $("btnCancel").onclick = () => { cancelado = true; if (sep) sep.fechar(); location.reload(); };
 
 let ctx = null, tracks = [], sources = [], playing = false, startAt = 0, offset = 0, dur = 0, tick = 0, nomeArq = "";
@@ -289,7 +319,7 @@ async function separar(file) {
   } catch (e) {
     if (sep) { sep.fechar(); sep = null; }
     if (cancelado) return;
-    tela("pEscolher"); alert("Não foi possível separar: " + e.message);
+    tela("pArquivo"); alert("Não foi possível separar: " + e.message);
   } finally { if (cr) { cr.parar(); cr = null; } manterTelaLigada(false); }
 }
 
@@ -303,7 +333,7 @@ function montarMixer(segs) {
   }
   $("tTotal").textContent = fmt(dur); $("tAtual").textContent = "0:00"; $("seek").value = 0; offset = 0;
   $("mixInfo").textContent = "pronta em " + fmt(segs);
-  $("gBox").classList.remove("esconde"); $("gProc").classList.add("esconde"); $("btnGerar").disabled = false;
+  if (!gerando) { $("gBox").classList.remove("esconde"); $("gProc").classList.add("esconde"); }
   tela("pMix"); aplicarPreset("semvoz");
 }
 function setVol(tk, v) { tk.vol = v; tk.slider.value = Math.round(v * 100); tk.pct.textContent = Math.round(v * 100); if (tk.gain) tk.gain.gain.setTargetAtTime(v, ctx.currentTime, 0.02); }
@@ -325,7 +355,7 @@ $("seek").oninput = () => { seeking = true; $("tAtual").textContent = fmt($("see
 $("seek").onchange = () => { const era = playing; if (playing) parar(true); offset = $("seek").value / 1000 * dur; seeking = false; if (era) tocar(); else atualizarPos(); };
 $("btnPlay").onclick = () => playing ? parar(true) : tocar();
 $("btnMin").onclick = () => { const r = $("tracks").classList.toggle("esconde"); $("btnMin").textContent = r ? "▴" : "▾"; };
-$("btnTrocar").onclick = () => { limpar(); tela("pEscolher"); };
+$("btnTrocar").onclick = () => { limpar(); arquivo = null; tela("pEscolher"); };
 
 // ================= Gerar cifra: acordes do instrumental + letra da voz (Whisper), tudo no aparelho =================
 // Transformers.js da CDN oficial, fixado e conferido (SHA-256), entregue ao motor da letra como blob
@@ -343,47 +373,81 @@ async function libTransformers() {
 }
 let gcr = null;
 const gEtapa = (tit, frac, msg) => { $("gTit").textContent = tit; $("gTit").classList.remove("erro"); if (frac != null) $("gBar").style.width = Math.round(frac * 100) + "%"; if (msg != null) $("gMsg").textContent = msg; gcr && gcr.sinal($("gMsg").textContent); };
-$("btnGerar").onclick = () => gerarCifra();
-async function gerarCifra() {
-  const voz = tracks.find(t => t.name === "Voz"); if (!voz) return;
-  $("btnGerar").disabled = true; $("gBox").classList.add("esconde"); $("gProc").classList.remove("esconde");
-  gcr = cronometro("gRel", "gMsg"); manterTelaLigada(true);
+$("btnGerar").onclick = () => gerarCifra(false);
+$("btnAcordes").onclick = () => gerarCifra(true);
+// acordes sem letra: linhas de até 4 acordes, com uma linha em branco embaixo para escrever a letra
+function soAcordes(lista) {
+  const out = []; for (let k = 0; k < lista.length; k += 4) out.push(lista.slice(k, k + 4).map(a => a.nome.padEnd(6)).join("").trimEnd(), "");
+  return out.join("\n").trimEnd();
+}
+let gerando = false;
+async function gerarCifra(soAc) {
+  if (gerando || (!tracks.length && !arquivo)) return;
+  gerando = true; $("btnGerar").disabled = $("btnAcordes").disabled = $("btnSeparar").disabled = true;
+  const t0 = performance.now();
   try {
-    gEtapa("Detectando os acordes…", 0.03, "Analisando o instrumental.");
+    // a letra precisa da voz separada (direto da música original o reconhecimento falha em música com banda):
+    // se ainda não separou, separa agora uma única vez — e a música já fica pronta para ensaiar sem voz
+    if (!soAc && !tracks.find(t => t.name === "Voz")) {
+      await separar(arquivo);
+      if (!tracks.find(t => t.name === "Voz")) return;   // separação cancelada ou com erro (já avisada)
+    }
+    const voz = tracks.find(t => t.name === "Voz");
+    $("gBox").classList.add("esconde"); $("gProc").classList.remove("esconde");
+    gcr = cronometro("gRel", "gMsg"); manterTelaLigada(true);
     const { cromagrama, acordes, montarCifra } = await import(MOTORES + "cifra-auto.js?v=" + VERSAO);
-    await new Promise(r => setTimeout(r, 30));
-    const n = voz.buf.length, inst = tracks.find(t => t.name === "Instrumental");
-    let iL, iR;
-    if (inst) { iL = inst.buf.getChannelData(0); iR = inst.buf.getChannelData(1); }
-    else { iL = new Float32Array(n); iR = new Float32Array(n); for (const tk of tracks) if (tk.name !== "Voz" && tk.name !== "Bateria") { const a = tk.buf.getChannelData(0), b = tk.buf.getChannelData(1); for (let i = 0; i < n; i++) { iL[i] += a[i]; iR[i] += b[i]; } } }
-    const ac = acordes(cromagrama(iL, iR, SR)); iL = iR = null;
-    gEtapa("Preparando a voz…", 0.08, ac.acordes.length + " mudanças de acorde · tom provável " + ac.tom);
-    const off16 = new OfflineAudioContext(1, Math.ceil(voz.buf.duration * 16000), 16000); const s = off16.createBufferSource(); s.buffer = voz.buf; s.connect(off16.destination); s.start();
-    const v16 = (await off16.startRendering()).getChannelData(0).slice();
-    gEtapa("Abrindo o motor da letra…", 0.1, "Alguns segundos.");
-    letraM = await abrirMotor("worker-letra.js");
-    let tL = 0;
-    letraM.prog = (ev) => {
-      if (ev.fase === "baixando" && ev.total) gEtapa("Baixando o modelo da letra (só na 1ª vez)…", 0.1 + 0.2 * ev.got / ev.total, Math.round(ev.got / 1e6) + " de " + Math.round(ev.total / 1e6) + " MB");
-      if (ev.fase === "transcrevendo") { const f = ev.parte / ev.total, p = (performance.now() - tL) / 1000; gEtapa("Escrevendo a letra… " + Math.round(f * 100) + "%", 0.3 + 0.68 * f, "Parte " + ev.parte + " de " + ev.total + (f < 1 ? " · faltam cerca de " + fmt(p / f * (1 - f)) : "")); }
-    };
-    gEtapa("Carregando o modelo da letra…", 0.1, "Na primeira vez ele é baixado (use Wi-Fi).");
-    await letraM.call("load", { model: $("gAsr").value, lib: await libTransformers() });
-    tL = performance.now(); gEtapa("Escrevendo a letra… 0%", 0.3, "Começando…");
-    const r = await letraM.call("transcrever", { audio: v16, lang: $("gLang").value }, [v16.buffer]);
-    letraM.fechar(); letraM = null;
-    const cifra = montarCifra(r.palavras, ac.acordes);
-    if (!cifra.trim()) throw new Error("não reconheci letra nem acordes nesta música");
+    let ac;
+    if (voz) {   // já separada: acordes do instrumental
+      gEtapa("Detectando os acordes…", 0.03, "Analisando o instrumental.");
+      await new Promise(r => setTimeout(r, 30));
+      const n = voz.buf.length, inst = tracks.find(t => t.name === "Instrumental");
+      let iL, iR;
+      if (inst) { iL = inst.buf.getChannelData(0); iR = inst.buf.getChannelData(1); }
+      else { iL = new Float32Array(n); iR = new Float32Array(n); for (const tk of tracks) if (tk.name !== "Voz" && tk.name !== "Bateria") { const a = tk.buf.getChannelData(0), b = tk.buf.getChannelData(1); for (let i = 0; i < n; i++) { iL[i] += a[i]; iR[i] += b[i]; } } }
+      ac = acordes(cromagrama(iL, iR, SR)); iL = iR = null;
+    } else {     // só acordes, sem separar: direto da música original
+      gEtapa("Lendo a música…", 0.1, "Direto da música original.");
+      if (!ctx) ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const dec = await ctx.decodeAudioData(await arquivo.arrayBuffer());
+      gEtapa("Detectando os acordes…", 0.5, fmt(dec.duration) + " de música.");
+      await new Promise(r => setTimeout(r, 30));
+      ac = acordes(cromagrama(dec.getChannelData(0), dec.numberOfChannels > 1 ? dec.getChannelData(1) : dec.getChannelData(0), dec.sampleRate));
+    }
+    let cifra, r = null;
+    if (soAc) cifra = soAcordes(ac.acordes);
+    else {
+      gEtapa("Preparando a voz…", 0.08, ac.acordes.length + " mudanças de acorde · tom provável " + ac.tom);
+      const off16 = new OfflineAudioContext(1, Math.ceil(voz.buf.duration * 16000), 16000); const s = off16.createBufferSource(); s.buffer = voz.buf; s.connect(off16.destination); s.start();
+      const v16 = (await off16.startRendering()).getChannelData(0).slice();
+      gEtapa("Abrindo o motor da letra…", 0.1, "Alguns segundos.");
+      letraM = await abrirMotor("worker-letra.js");
+      let tL = 0;
+      letraM.prog = (ev) => {
+        if (ev.fase === "baixando" && ev.total) gEtapa("Baixando o modelo da letra (só na 1ª vez)…", 0.1 + 0.2 * ev.got / ev.total, Math.round(ev.got / 1e6) + " de " + Math.round(ev.total / 1e6) + " MB");
+        if (ev.fase === "transcrevendo") { const f = ev.parte / ev.total, p = (performance.now() - tL) / 1000; gEtapa("Escrevendo a letra… " + Math.round(f * 100) + "%", 0.3 + 0.68 * f, "Parte " + ev.parte + " de " + ev.total + (f < 1 ? " · faltam cerca de " + fmt(p / f * (1 - f)) : "")); }
+      };
+      gEtapa("Carregando o modelo da letra…", 0.1, "Na primeira vez ele é baixado (use Wi-Fi).");
+      await letraM.call("load", { model: $("gAsr").value, lib: await libTransformers() });
+      tL = performance.now(); gEtapa("Escrevendo a letra… 0%", 0.3, "Começando…");
+      r = await letraM.call("transcrever", { audio: v16, lang: $("gLang").value }, [v16.buffer]);
+      letraM.fechar(); letraM = null;
+      cifra = montarCifra(r.palavras, ac.acordes);
+    }
+    if (!cifra.trim()) throw new Error("não reconheci " + (soAc ? "acordes" : "letra nem acordes") + " nesta música");
     song = { ...song, t: doApp ? song.t : (nomeArq || "Música nova"), tom: ac.tom, cifra, n: doApp ? song.n : null };
     gerada = true; steps = 0; guardarRascunho(); renderCifra(); $("cifra").scrollTop = 0;
-    gEtapa("Pronto ✓", 1, r.palavras.length + " palavras · " + ac.acordes.length + " acordes · tom provável " + ac.tom + ". Toque em ✎ Editar para corrigir e salvar.");
-    window.__cifraGerada = { palavras: r.palavras.length, acordes: ac.acordes.length, tom: ac.tom, inicio: cifra.slice(0, 600) };
+    gEtapa("Pronto ✓", 1, (r ? r.palavras.length + " palavras · " : "") + ac.acordes.length + " acordes · tom provável " + ac.tom + (soAc ? ". Escreva a letra embaixo de cada linha em ✎ Editar." : ". Toque em ✎ Editar para corrigir e salvar."));
+    window.__cifraGerada = { modo: soAc ? "acordes" : "completa", segundos: Math.round((performance.now() - t0) / 100) / 10, palavras: r ? r.palavras.length : 0, acordes: ac.acordes.length, tom: ac.tom, texto: r ? r.texto : "", inicio: cifra.slice(0, 300) };
   } catch (e) {
     if (letraM) { letraM.fechar(); letraM = null; }
-    $("gTit").textContent = "Parou com erro"; $("gTit").classList.add("erro"); $("gMsg").textContent = "Não foi possível gerar a cifra: " + e.message;
-    $("gBox").classList.remove("esconde"); $("btnGerar").disabled = false;
+    $("gProc").classList.remove("esconde");
+    $("gTit").textContent = "Parou com erro"; $("gTit").classList.add("erro"); $("gMsg").textContent = "Não foi possível gerar: " + e.message;
     window.__cifraGerada = { erro: e.message };
-  } finally { if (gcr) { gcr.parar(); gcr = null; } manterTelaLigada(false); }
+  } finally {
+    if (gcr) { gcr.parar(); gcr = null; } manterTelaLigada(false); gerando = false;
+    $("gBox").classList.remove("esconde"); $("btnGerar").disabled = $("btnAcordes").disabled = $("btnSeparar").disabled = false;
+    $("gDica").textContent = tracks.length ? "A voz já está separada: a cifra completa sai em segundos." : $("gDica").textContent;
+  }
 }
 
 // ================= Nada é salvo da música: ao sair, a música e as faixas são apagadas =================
@@ -394,12 +458,19 @@ if (QS.get("autoteste") === "1" && location.hostname === "127.0.0.1") {
   const reg = (m) => fetch("__registro?" + encodeURIComponent(m)).catch(() => {});
   let ult = "";
   const obs = new MutationObserver(() => { const t = $("procTit").textContent + " | " + $("gTit").textContent; if (t !== ult) { ult = t; reg(t); } }); obs.observe($("painel"), { subtree: true, childList: true, characterData: true });
-  const fim = new MutationObserver(() => { if (!$("pMix").classList.contains("esconde")) { reg("PRONTO " + JSON.stringify(window.__ensaio.estado()) + " " + $("mixInfo").textContent); fim.disconnect(); if (QS.get("cifra") === "1") gerarCifra().then(() => reg("CIFRA " + JSON.stringify(window.__cifraGerada))); } }); fim.observe($("pMix"), { attributes: true });
+  const fim = new MutationObserver(() => { if (!$("pMix").classList.contains("esconde")) { reg("PRONTO " + JSON.stringify(window.__ensaio.estado()) + " " + $("mixInfo").textContent); fim.disconnect(); if (QS.get("cifra") === "1") gerarCifra(false).then(() => reg("CIFRA " + JSON.stringify(window.__cifraGerada))); } }); fim.observe($("pMix"), { attributes: true });
   window.addEventListener("error", (e) => reg("ERRO " + e.message));
   window.alert = (m) => { reg("ALERTA " + m); };
-  fetch("teste-cc0.mp3").then(r => r.blob()).then(b => window.__ensaio.separar(b, "teste-cc0.mp3", QS.get("m") || "voz"));
+  const nomeT = /^[a-z0-9_-]+\.mp3$/i.test(QS.get("arq") || "") ? QS.get("arq") : "teste-cc0.mp3";
+  if (QS.get("lang")) $("gLang").value = QS.get("lang");
+  if (QS.get("asr") === "small") $("gAsr").value = "onnx-community/whisper-small_timestamped";
+  fetch(nomeT).then(r => r.blob()).then(b => {
+    const f = new File([b], nomeT);
+    if (QS.get("acordes") === "1" || QS.get("completa") === "1") { escolher(f); gerarCifra(QS.get("acordes") === "1").then(() => reg("CIFRA " + JSON.stringify(window.__cifraGerada))); }
+    else window.__ensaio.separar(b, nomeT, QS.get("m") || "voz");
+  });
 }
-window.__ensaio = { separar: (blob, nome, modo) => { if (modo) $("modo").value = modo; return separar(new File([blob], nome || "teste.mp3")); }, estado: () => ({ faixas: tracks.map(t => t.name), dur, painel: [...document.querySelectorAll("#painel > div")].filter(d => !d.classList.contains("esconde")).map(d => d.id) }) };
+window.__ensaio = { separar: (blob, nome, modo) => { if (modo) $("modo").value = modo; const f = new File([blob], nome || "teste.mp3"); escolher(f); return separar(f); }, estado: () => ({ faixas: tracks.map(t => t.name), dur, painel: [...document.querySelectorAll("#painel > div")].filter(d => !d.classList.contains("esconde")).map(d => d.id) }) };
 </script>
 </body>
 </html>
