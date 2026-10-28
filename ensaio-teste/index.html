@@ -70,6 +70,8 @@
     <div class="lin" style="margin-top:6px">
       <button class="pri" id="btnArq">Escolher música</button>
       <input type="file" id="arq" accept="audio/*,.mp3,.m4a,.wav,.aac,.flac,.ogg" hidden />
+      <button id="btnImportar">📥 Importar do Arquivos</button>
+      <input type="file" id="arqZip" accept=".zip,application/zip" hidden />
     </div>
     <p class="mut" style="margin:6px 0 0">Depois você escolhe: gerar a cifra (rápido) e/ou separar a voz para ensaiar (demorado).</p>
     <div id="lista"></div>
@@ -98,7 +100,11 @@
     </div>
     <div class="pos"><span id="tAtual">0:00</span><input type="range" id="seek" min="0" max="1000" value="0" aria-label="Posição da música" /><span id="tTotal">0:00</span></div>
     <div id="tracks"></div>
-    <div class="lin" style="margin-top:4px"><button id="btnTrocar" style="padding:5px 10px;font-size:13px">Trocar música</button><button id="btnGuardar" style="padding:5px 10px;font-size:13px">💾 Guardar no celular</button><span class="mut" id="mixInfo"></span></div>
+    <div class="lin" style="margin-top:4px"><button id="btnTrocar" style="padding:5px 10px;font-size:13px">Trocar música</button><button id="btnGuardar" style="padding:5px 10px;font-size:13px">💾 Guardar no celular</button><button id="btnExportar" style="padding:5px 10px;font-size:13px">📤 Exportar para Arquivos</button><span class="mut" id="mixInfo"></span></div>
+    <div id="expBox" class="esconde" style="margin-top:6px">
+      <div class="lin"><button class="pri" id="btnCompartilhar">Salvar em Arquivos…</button><a id="expLink" class="mut" href="#">ou baixar</a><button id="expFechar" style="padding:4px 9px;font-size:12px;margin-left:auto">✕</button></div>
+      <p class="mut" id="expMsg" style="margin:6px 0 0"></p>
+    </div>
   </div>
   <!-- 4) cifra: acordes na hora (da música original) ou completa (acordes + letra; a letra precisa da voz separada) -->
   <div id="pCifra" class="esconde">
@@ -477,8 +483,9 @@ async function guardar() {
     try { if (navigator.storage && navigator.storage.persist) await navigator.storage.persist(); } catch (e) {}
     const id = "m" + Date.now().toString(36), comInst = tracks.some(t => t.name === "Instrumental");
     const audio = { v: 1, faixas: [] };
-    if (comInst) { if (!arquivo) throw new Error("o arquivo original não está mais disponível"); audio.orig = await arquivo.arrayBuffer(); }
-    for (const tk of tracks) if (!(comInst && tk.name === "Instrumental")) audio.faixas.push({ name: tk.name, L: to16(tk.buf.getChannelData(0)), R: to16(tk.buf.getChannelData(1)) });
+    const usaOrig = comInst && !!arquivo;   // música importada não tem o original: guarda o instrumental pronto
+    if (usaOrig) audio.orig = await arquivo.arrayBuffer();
+    for (const tk of tracks) if (!(usaOrig && tk.name === "Instrumental")) audio.faixas.push({ name: tk.name, L: to16(tk.buf.getChannelData(0)), R: to16(tk.buf.getChannelData(1)) });
     const bytes = (audio.orig ? audio.orig.byteLength : 0) + audio.faixas.reduce((a, f) => a + f.L.byteLength + f.R.byteLength, 0);
     const meta = { id, nome: nomeArq || song.t || "Música", dur, n: tracks[0].buf.length, bytes, quando: Date.now(), faixas: tracks.map(t => t.name) };
     if (gerada && song.cifra) Object.assign(meta, { t: song.t, tom: song.tom || "", cifra: song.cifra });
@@ -552,7 +559,7 @@ if (QS.get("autoteste") === "1" && location.hostname === "127.0.0.1") {
   const reg = (m) => fetch("__registro?" + encodeURIComponent(m)).catch(() => {});
   let ult = "";
   const obs = new MutationObserver(() => { const t = $("procTit").textContent + " | " + $("gTit").textContent; if (t !== ult) { ult = t; reg(t); } }); obs.observe($("painel"), { subtree: true, childList: true, characterData: true });
-  const fim = new MutationObserver(() => { if (!$("pMix").classList.contains("esconde")) { reg("PRONTO " + JSON.stringify(window.__ensaio.estado()) + " " + $("mixInfo").textContent); fim.disconnect(); if (QS.get("guardar") === "1") window.__ensaio.testeGuardar().then(x => reg("GUARDAR " + JSON.stringify(x))); else if (QS.get("cifra") === "1") gerarCifra(false).then(() => reg("CIFRA " + JSON.stringify(window.__cifraGerada))); } }); fim.observe($("pMix"), { attributes: true });
+  const fim = new MutationObserver(() => { if (!$("pMix").classList.contains("esconde")) { reg("PRONTO " + JSON.stringify(window.__ensaio.estado()) + " " + $("mixInfo").textContent); fim.disconnect(); if (QS.get("exportar") === "1") window.__ensaio.testeExportar().then(x => { reg("EXPORTAR " + JSON.stringify(x)); if (QS.get("guardar") === "1") window.__ensaio.testeGuardar().then(y => reg("GUARDAR " + JSON.stringify(y))); }); else if (QS.get("guardar") === "1") window.__ensaio.testeGuardar().then(x => reg("GUARDAR " + JSON.stringify(x))); else if (QS.get("cifra") === "1") gerarCifra(false).then(() => reg("CIFRA " + JSON.stringify(window.__cifraGerada))); } }); fim.observe($("pMix"), { attributes: true });
   window.addEventListener("error", (e) => reg("ERRO " + e.message));
   window.alert = (m) => { reg("ALERTA " + m); };
   const nomeT = /^[a-z0-9_-]+\.mp3$/i.test(QS.get("arq") || "") ? QS.get("arq") : "teste-cc0.mp3";
@@ -564,7 +571,120 @@ if (QS.get("autoteste") === "1" && location.hostname === "127.0.0.1") {
     else window.__ensaio.separar(b, nomeT, QS.get("m") || "voz");
   });
 }
+// ================= Exportar para Arquivos / Importar (pacote .zip: faixas em WAV 16 bits + cifra + ensaio.json) =================
+// Uma página não grava sozinha numa pasta do iPhone: o pacote vai pela tela de compartilhar ("Salvar em Arquivos")
+// ou é baixado; "Importar" lê o pacote de volta sem separar de novo. Tudo no aparelho; nada é enviado.
+const CRC = (() => { const t = new Uint32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; } return t; })();
+function crc32(u8) { let c = 0xFFFFFFFF; for (let i = 0; i < u8.length; i++) c = CRC[(c ^ u8[i]) & 255] ^ (c >>> 8); return (c ^ 0xFFFFFFFF) >>> 0; }
+function wav16(L, R) {   // WAV PCM 16 bits estéreo 44,1 kHz
+  const n = L.length, b = new ArrayBuffer(44 + n * 4), v = new DataView(b), pcm = new Int16Array(b, 44);
+  const tx = (o, t) => { for (let i = 0; i < t.length; i++) v.setUint8(o + i, t.charCodeAt(i)); };
+  tx(0, "RIFF"); v.setUint32(4, 36 + n * 4, true); tx(8, "WAVE"); tx(12, "fmt "); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 2, true);
+  v.setUint32(24, SR, true); v.setUint32(28, SR * 4, true); v.setUint16(32, 4, true); v.setUint16(34, 16, true); tx(36, "data"); v.setUint32(40, n * 4, true);
+  for (let i = 0, j = 0; i < n; i++) { const a = L[i] < -1 ? -1 : L[i] > 1 ? 1 : L[i], c = R[i] < -1 ? -1 : R[i] > 1 ? 1 : R[i]; pcm[j++] = a * 32767; pcm[j++] = c * 32767; }
+  return new Uint8Array(b);
+}
+function lerWav(u8) {
+  const v = new DataView(u8.buffer, u8.byteOffset, u8.byteLength), tag = (o) => String.fromCharCode(u8[o], u8[o + 1], u8[o + 2], u8[o + 3]);
+  if (tag(0) !== "RIFF" || tag(8) !== "WAVE") throw new Error("faixa não é WAV");
+  let o = 12, ch = 0, bits = 0, sr = 0, dados = null;
+  while (o + 8 <= u8.length) { const id = tag(o), sz = v.getUint32(o + 4, true); if (id === "fmt ") { ch = v.getUint16(o + 10, true); sr = v.getUint32(o + 12, true); bits = v.getUint16(o + 22, true); } else if (id === "data") { dados = [o + 8, Math.min(sz, u8.length - o - 8)]; break; } o += 8 + sz + (sz & 1); }
+  if (!dados || bits !== 16 || sr !== SR || (ch !== 1 && ch !== 2)) throw new Error("formato de faixa não suportado");
+  const pcm = new Int16Array(u8.buffer.slice(u8.byteOffset + dados[0], u8.byteOffset + dados[0] + dados[1] - (dados[1] % (2 * ch)))), n = pcm.length / ch, L = new Float32Array(n), R = new Float32Array(n);
+  for (let i = 0; i < n; i++) { L[i] = pcm[i * ch] / 32767; R[i] = pcm[i * ch + ch - 1] / 32767; }
+  return { L, R };
+}
+function zipStore(arquivos) {   // ZIP sem compressão (WAV quase não comprime); nomes em UTF-8
+  const enc = new TextEncoder(), partes = [], central = []; let off = 0;
+  const d = new Date(), dt = ((d.getFullYear() - 1980) << 9) | ((d.getMonth() + 1) << 5) | d.getDate(), tm = (d.getHours() << 11) | (d.getMinutes() << 5) | (d.getSeconds() >> 1);
+  for (const f of arquivos) {
+    const nm = enc.encode(f.nome), crc = crc32(f.dados), h = new DataView(new ArrayBuffer(30));
+    h.setUint32(0, 0x04034b50, true); h.setUint16(4, 20, true); h.setUint16(6, 0x0800, true); h.setUint16(8, 0, true); h.setUint16(10, tm, true); h.setUint16(12, dt, true);
+    h.setUint32(14, crc, true); h.setUint32(18, f.dados.length, true); h.setUint32(22, f.dados.length, true); h.setUint16(26, nm.length, true); h.setUint16(28, 0, true);
+    partes.push(h.buffer, nm, f.dados);
+    const c = new DataView(new ArrayBuffer(46));
+    c.setUint32(0, 0x02014b50, true); c.setUint16(4, 20, true); c.setUint16(6, 20, true); c.setUint16(8, 0x0800, true); c.setUint16(10, 0, true); c.setUint16(12, tm, true); c.setUint16(14, dt, true);
+    c.setUint32(16, crc, true); c.setUint32(20, f.dados.length, true); c.setUint32(24, f.dados.length, true); c.setUint16(28, nm.length, true); c.setUint32(42, off, true);
+    central.push(c.buffer, nm); off += 30 + nm.length + f.dados.length;
+  }
+  const tamC = central.reduce((a, x) => a + x.byteLength, 0), e = new DataView(new ArrayBuffer(22));
+  e.setUint32(0, 0x06054b50, true); e.setUint16(8, arquivos.length, true); e.setUint16(10, arquivos.length, true); e.setUint32(12, tamC, true); e.setUint32(16, off, true);
+  return new Blob([...partes, ...central, e.buffer], { type: "application/zip" });
+}
+async function lerZip(buf) {   // aceita o pacote do app (sem compressão) e também se o iPhone/Mac recomprimir (deflate)
+  const u8 = new Uint8Array(buf), v = new DataView(buf); let e = -1;
+  for (let i = u8.length - 22; i >= Math.max(0, u8.length - 65557); i--) if (v.getUint32(i, true) === 0x06054b50) { e = i; break; }
+  if (e < 0) throw new Error("o arquivo não é um pacote .zip válido");
+  const qt = v.getUint16(e + 10, true); let o = v.getUint32(e + 16, true); const dec = new TextDecoder(), out = {};
+  for (let k = 0; k < qt; k++) {
+    if (v.getUint32(o, true) !== 0x02014b50) throw new Error("pacote danificado");
+    const met = v.getUint16(o + 10, true), tam = v.getUint32(o + 20, true), nl = v.getUint16(o + 28, true), xl = v.getUint16(o + 30, true), cl = v.getUint16(o + 32, true), lo = v.getUint32(o + 42, true);
+    const nome = dec.decode(u8.subarray(o + 46, o + 46 + nl)), ini = lo + 30 + v.getUint16(lo + 26, true) + v.getUint16(lo + 28, true);
+    let dados = u8.subarray(ini, ini + tam);
+    if (met === 8) dados = new Uint8Array(await new Response(new Blob([dados]).stream().pipeThrough(new DecompressionStream("deflate-raw"))).arrayBuffer());
+    else if (met !== 0) throw new Error("compressão não suportada no pacote");
+    out[nome.split("/").pop()] = dados; o += 46 + nl + xl + cl;
+  }
+  return out;
+}
+const nomeSeguro = (t) => (String(t || "musica").normalize("NFC").replace(/[\\/:*?"<>|\u0000-\u001f]+/g, " ").replace(/\s+/g, " ").trim().slice(0, 60) || "musica");
+let exportado = null;
+async function exportar() {
+  if (!tracks.length) return;
+  $("btnExportar").disabled = true; $("btnExportar").textContent = "Preparando…";
+  try {
+    await new Promise(r => setTimeout(r, 30));
+    const nome = nomeSeguro(nomeArq || song.t), arquivos = [], faixas = [];
+    for (const tk of tracks) { const arq = (tk.name === "Instrumental" ? "Instrumental (sem voz)" : tk.name) + ".wav"; arquivos.push({ nome: arq, dados: wav16(tk.buf.getChannelData(0), tk.buf.getChannelData(1)) }); faixas.push({ name: tk.name, arquivo: arq }); }
+    const temCifra = !!(song.cifra && song.cifra.trim());
+    if (temCifra) arquivos.push({ nome: "Cifra.txt", dados: new TextEncoder().encode((song.t ? song.t + "\n" : "") + (song.tom ? "Tom: " + song.tom + "\n\n" : "\n") + song.cifra + "\n") });
+    const man = { app: "missa-ensaio", v: 1, nome, dur, faixas, ...(temCifra ? { t: song.t, tom: song.tom || "", cifra: song.cifra } : {}), quando: new Date().toISOString() };
+    arquivos.push({ nome: "ensaio.json", dados: new TextEncoder().encode(JSON.stringify(man, null, 1)) });
+    const blob = zipStore(arquivos);
+    if (exportado) URL.revokeObjectURL(exportado.url);
+    exportado = { file: new File([blob], nome + " (ensaio).zip", { type: "application/zip" }), url: URL.createObjectURL(blob) };
+    $("expLink").href = exportado.url; $("expLink").download = exportado.file.name;
+    $("expMsg").textContent = exportado.file.name + " · " + mbs(blob.size) + " MB. Toque em “Salvar em Arquivos…” e escolha a pasta (ex.: crie “Missa ST” no iCloud Drive). Para reabrir depois: aba Ensaio → 📥 Importar do Arquivos.";
+    $("btnCompartilhar").classList.toggle("esconde", !(navigator.canShare && navigator.canShare({ files: [exportado.file] })));
+    $("expBox").classList.remove("esconde");
+  } catch (e) { alert("Não foi possível exportar: " + e.message); }
+  finally { $("btnExportar").disabled = false; $("btnExportar").textContent = "📤 Exportar para Arquivos"; }
+}
+$("btnExportar").onclick = () => exportar();
+$("btnCompartilhar").onclick = async () => { if (!exportado) return; try { await navigator.share({ files: [exportado.file], title: exportado.file.name }); } catch (e) { if (e && e.name !== "AbortError") $("expMsg").textContent = "Não abriu a tela de compartilhar (" + e.message + "). Use “ou baixar”."; } };
+$("expFechar").onclick = () => $("expBox").classList.add("esconde");
+async function importar(f) {
+  limpar(); arquivo = null; guardadaId = null;
+  tela("pProc"); cr = cronometro("procRel", "procMsg"); proc("Abrindo o pacote…", 0.1, f.name);
+  try {
+    const itens = await lerZip(await f.arrayBuffer());
+    if (!itens["ensaio.json"]) throw new Error("este .zip não é um pacote exportado pelo Modo ensaio");
+    const man = JSON.parse(new TextDecoder().decode(itens["ensaio.json"]));
+    if (man.app !== "missa-ensaio" || !Array.isArray(man.faixas) || !man.faixas.length) throw new Error("pacote de outro app ou incompleto");
+    if (!ctx) ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const fx = man.faixas.map((x, k) => { proc("Abrindo o pacote…", 0.2 + 0.7 * k / man.faixas.length, x.name); const d = itens[x.arquivo]; if (!d) throw new Error("faltou a faixa " + x.arquivo); return { name: x.name, ...lerWav(d) }; });
+    const n = Math.min(...fx.map(x => x.L.length)), mk = (l, rr) => { const b = ctx.createBuffer(2, n, SR); b.copyToChannel(l.subarray(0, n), 0); b.copyToChannel(rr.subarray(0, n), 1); return b; };
+    tracks = fx.map(x => ({ name: x.name, buf: mk(x.L, x.R), vol: 1 }));
+    nomeArq = man.nome || f.name.replace(/\.zip$/i, ""); dur = n / SR;
+    if (man.cifra) { song = { ...song, t: man.t || nomeArq, tom: man.tom || "", cifra: man.cifra, n: doApp ? song.n : null }; gerada = true; steps = 0; renderCifra(); }
+    $("arqNome").textContent = "🎵 " + nomeArq;
+    montarMixer(null); $("mixInfo").textContent = "importada do Arquivos";
+  } catch (e) { tela("pEscolher"); alert("Não foi possível importar: " + e.message); }
+  finally { if (cr) { cr.parar(); cr = null; } }
+}
+$("btnImportar").onclick = () => $("arqZip").click();
+$("arqZip").onchange = () => { const f = $("arqZip").files[0]; if (f) importar(f); $("arqZip").value = ""; };
+
 window.__ensaio = {
+  // exporta, importa o próprio pacote e compara as faixas
+  testeExportar: async () => {
+    const antes = tracks.map(t => [t.name, t.buf.getChannelData(0).slice()]);
+    await exportar(); if (!exportado) return { erro: "não exportou" };
+    const tam = exportado.file.size, nome = exportado.file.name;
+    await importar(exportado.file);
+    const dif = antes.map(([nm, a]) => { const tk = tracks.find(t => t.name === nm); if (!tk) return [nm, "faltou"]; const b = tk.buf.getChannelData(0); let mx = 0; for (let i = 0; i < a.length; i += 7) mx = Math.max(mx, Math.abs(a[i] - b[i])); return [nm, mx.toFixed(5)]; });
+    return { nome, mb: mbs(tam), dif, faixas: tracks.map(t => t.name), info: $("mixInfo").textContent, cifra: !!song.cifra, podeCompartilhar: !$("btnCompartilhar").classList.contains("esconde") };
+  },
   // guarda, reabre e compara as faixas (diferença máxima esperada ~1/32767 por causa dos 16 bits)
   testeGuardar: async () => {
     const antes = tracks.map(t => [t.name, t.buf.getChannelData(0).slice()]);
