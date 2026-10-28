@@ -37,6 +37,9 @@
   .esconde { display:none !important; }
   .sep { border-top:1px solid var(--line); margin:8px 0 6px; }
   .erro { color:var(--danger) !important; }
+  .item { border:1px solid var(--line); border-radius:10px; padding:6px 8px; margin-top:6px; flex-wrap:nowrap !important; }
+  .item .nm { flex:1; min-width:0; } .item .nm b { display:block; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-size:14px; }
+  .item button { padding:5px 10px; font-size:13px; }
   a { color:var(--blue); }
   /* editor */
   #editor { position:fixed; inset:0; background:var(--bg); z-index:30; display:flex; flex-direction:column; padding:calc(8px + env(safe-area-inset-top)) 12px calc(10px + env(safe-area-inset-bottom)); gap:8px; }
@@ -69,6 +72,7 @@
       <input type="file" id="arq" accept="audio/*,.mp3,.m4a,.wav,.aac,.flac,.ogg" hidden />
     </div>
     <p class="mut" style="margin:6px 0 0">Depois você escolhe: gerar a cifra (rápido) e/ou separar a voz para ensaiar (demorado).</p>
+    <div id="lista"></div>
   </div>
   <!-- 1b) música escolhida: separar é opcional -->
   <div id="pArquivo" class="esconde">
@@ -94,7 +98,7 @@
     </div>
     <div class="pos"><span id="tAtual">0:00</span><input type="range" id="seek" min="0" max="1000" value="0" aria-label="Posição da música" /><span id="tTotal">0:00</span></div>
     <div id="tracks"></div>
-    <div class="lin" style="margin-top:4px"><button id="btnTrocar" style="padding:5px 10px;font-size:13px">Trocar música</button><span class="mut" id="mixInfo"></span></div>
+    <div class="lin" style="margin-top:4px"><button id="btnTrocar" style="padding:5px 10px;font-size:13px">Trocar música</button><button id="btnGuardar" style="padding:5px 10px;font-size:13px">💾 Guardar no celular</button><span class="mut" id="mixInfo"></span></div>
   </div>
   <!-- 4) cifra: acordes na hora (da música original) ou completa (acordes + letra; a letra precisa da voz separada) -->
   <div id="pCifra" class="esconde">
@@ -174,10 +178,10 @@ function renderCifra() {
   } else if (song.u) {
     $("cifra").innerHTML = "<div class='vazio'>A cifra desta música está em PDF.<br><a href='" + esc(song.u) + "' target='_blank' rel='noreferrer'>Abrir o PDF numa nova aba</a><br><br>A música separada continua tocando aqui.</div>";
   } else if (doApp) {
-    $("cifra").innerHTML = "<div class='vazio'>Esta música ainda não tem cifra em texto.<br>Separe a música aqui embaixo e toque em <b>✎ Gerar cifra</b>.</div>";
+    $("cifra").innerHTML = "<div class='vazio'>Esta música ainda não tem cifra em texto.<br>Escolha o arquivo dela aqui embaixo e toque em <b>♪ Acordes na hora</b> ou <b>✎ Cifra completa</b>.</div>";
   } else {
     const r = lerRascunho();
-    $("cifra").innerHTML = "<div class='vazio'><b style='color:var(--txt)'>Ensaio com qualquer música</b><br>1. Escolha uma música do aparelho aqui embaixo.<br>2. Ela é separada (voz × instrumental) no próprio celular.<br>3. Toque em <b>✎ Gerar cifra</b> para o app escrever acordes e letra.<br>4. Revise em <b>✎ Editar</b> e salve como música nova." +
+    $("cifra").innerHTML = "<div class='vazio'><b style='color:var(--txt)'>Ensaio com qualquer música</b><br>1. Escolha uma música do aparelho aqui embaixo (ou abra uma de <b>Minhas músicas</b>).<br>2. <b>♪ Acordes na hora</b> sai em segundos; <b>✎ Cifra completa</b> escreve também a letra (separa a voz, leva alguns minutos).<br>3. Para ensaiar sem voz, separe e toque em <b>💾 Guardar no celular</b> para não precisar separar de novo.<br>4. Revise em <b>✎ Editar</b> e salve como música nova." +
       (r && r.cifra ? "<br><br><button id='abrirRasc'>Abrir o último rascunho (" + esc(r.t || "sem título") + ")</button>" : "") + "</div>";
     const b = $("abrirRasc"); if (b) b.onclick = () => { song = { ...song, t: r.t || "Música", tom: r.tom || "", cifra: r.cifra }; gerada = true; renderCifra(); };
   }
@@ -198,7 +202,7 @@ function abrirEditor() {
   $("edTom").value = song.tom || ""; $("edCifra").value = transposeText(song.cifra || "", steps);
   $("editor").classList.remove("esconde");
 }
-function lerEditor() { song = { ...song, t: $("edTit").value.trim() || "Música sem título", tom: $("edTom").value.trim(), cifra: $("edCifra").value }; steps = 0; gerada = true; guardarRascunho(); }
+function lerEditor() { song = { ...song, t: $("edTit").value.trim() || "Música sem título", tom: $("edTom").value.trim(), cifra: $("edCifra").value }; steps = 0; gerada = true; guardarRascunho(); atualizarCifraGuardada(); }
 $("btnEditar").onclick = abrirEditor;
 $("edFechar").onclick = () => $("editor").classList.add("esconde");
 $("edAplicar").onclick = () => { lerEditor(); $("editor").classList.add("esconde"); renderCifra(); };
@@ -276,7 +280,7 @@ async function carregarSeparador(M) {
 $("btnArq").onclick = () => $("arq").click();
 let arquivo = null;   // música escolhida (fica só na memória desta tela)
 function escolher(f) {
-  limpar(); arquivo = f;
+  limpar(); arquivo = f; guardadaId = null;
   nomeArq = (f.name || "").replace(/\.[a-z0-9]{2,4}$/i, "").replace(/[_]+/g, " ").trim();
   $("arqNome").textContent = "🎵 " + (nomeArq || "música escolhida");
   $("gProc").classList.add("esconde"); $("gBox").classList.remove("esconde"); $("btnGerar").disabled = false;
@@ -288,6 +292,14 @@ $("btnTrocar2").onclick = () => { limpar(); arquivo = null; tela("pEscolher"); }
 $("btnCancel").onclick = () => { cancelado = true; if (sep) sep.fechar(); location.reload(); };
 
 let ctx = null, tracks = [], sources = [], playing = false, startAt = 0, offset = 0, dur = 0, tick = 0, nomeArq = "";
+// lê o arquivo e devolve L/R em 44,1 kHz estéreo
+async function decodificar(ab, aviso) {
+  if (!ctx) ctx = new (window.AudioContext || window.webkitAudioContext)();
+  let dec = await ctx.decodeAudioData(ab);
+  aviso && aviso(dec.duration);
+  if (dec.sampleRate !== SR || dec.numberOfChannels !== 2) { const off = new OfflineAudioContext(2, Math.ceil(dec.duration * SR), SR); const s = off.createBufferSource(); s.buffer = dec; s.connect(off.destination); s.start(); dec = await off.startRendering(); }
+  return { L: dec.getChannelData(0).slice(), R: dec.getChannelData(1).slice() };
+}
 async function separar(file) {
   const M = MODELS[$("modo").value];
   cancelado = false; tela("pProc"); cr = cronometro("procRel", "procMsg"); proc("Lendo a música…", 0, "Mantenha esta tela aberta."); manterTelaLigada(true);
@@ -296,10 +308,8 @@ async function separar(file) {
     if (!ctx) ctx = new (window.AudioContext || window.webkitAudioContext)();
     let L, R, n;
     { // só L e R ficam na memória (o arquivo decodificado é descartado)
-      let dec = await ctx.decodeAudioData(await file.arrayBuffer());
-      proc("Lendo a música…", 0.5, fmt(dec.duration) + " de música.");
-      if (dec.sampleRate !== SR || dec.numberOfChannels !== 2) { const off = new OfflineAudioContext(2, Math.ceil(dec.duration * SR), SR); const s = off.createBufferSource(); s.buffer = dec; s.connect(off.destination); s.start(); dec = await off.startRendering(); }
-      L = dec.getChannelData(0).slice(); R = dec.getChannelData(1).slice(); n = L.length;
+      ({ L, R } = await decodificar(await file.arrayBuffer(), (d) => proc("Lendo a música…", 0.5, fmt(d) + " de música.")));
+      n = L.length;
     }
     await carregarSeparador(M);
     const t0 = performance.now();
@@ -315,7 +325,7 @@ async function separar(file) {
     tracks = M.names.map((name, j) => ({ name, buf: mk(r.stems[2 * j], r.stems[2 * j + 1]), vol: 1 }));
     if (M.inst) { const j = M.names.length; tracks.push({ name: "Instrumental", buf: mk(r.stems[2 * j], r.stems[2 * j + 1]), vol: 1 }); }
     r.stems = null;
-    dur = n / SR; montarMixer((performance.now() - t0) / 1000);
+    dur = n / SR; guardadaId = null; montarMixer((performance.now() - t0) / 1000);
   } catch (e) {
     if (sep) { sep.fechar(); sep = null; }
     if (cancelado) return;
@@ -332,7 +342,8 @@ function montarMixer(segs) {
     $("tracks").appendChild(row);
   }
   $("tTotal").textContent = fmt(dur); $("tAtual").textContent = "0:00"; $("seek").value = 0; offset = 0;
-  $("mixInfo").textContent = "pronta em " + fmt(segs);
+  $("mixInfo").textContent = segs == null ? "guardada no celular" : "pronta em " + fmt(segs);
+  $("btnGuardar").disabled = !!guardadaId; $("btnGuardar").textContent = guardadaId ? "Guardada no celular ✓" : "💾 Guardar no celular";
   if (!gerando) { $("gBox").classList.remove("esconde"); $("gProc").classList.add("esconde"); }
   tela("pMix"); aplicarPreset("semvoz");
 }
@@ -435,7 +446,7 @@ async function gerarCifra(soAc) {
     }
     if (!cifra.trim()) throw new Error("não reconheci " + (soAc ? "acordes" : "letra nem acordes") + " nesta música");
     song = { ...song, t: doApp ? song.t : (nomeArq || "Música nova"), tom: ac.tom, cifra, n: doApp ? song.n : null };
-    gerada = true; steps = 0; guardarRascunho(); renderCifra(); $("cifra").scrollTop = 0;
+    gerada = true; steps = 0; guardarRascunho(); renderCifra(); $("cifra").scrollTop = 0; atualizarCifraGuardada();
     gEtapa("Pronto ✓", 1, (r ? r.palavras.length + " palavras · " : "") + ac.acordes.length + " acordes · tom provável " + ac.tom + (soAc ? ". Escreva a letra embaixo de cada linha em ✎ Editar." : ". Toque em ✎ Editar para corrigir e salvar."));
     window.__cifraGerada = { modo: soAc ? "acordes" : "completa", segundos: Math.round((performance.now() - t0) / 100) / 10, palavras: r ? r.palavras.length : 0, acordes: ac.acordes.length, tom: ac.tom, texto: r ? r.texto : "", inicio: cifra.slice(0, 300) };
   } catch (e) {
@@ -450,7 +461,90 @@ async function gerarCifra(soAc) {
   }
 }
 
-// ================= Nada é salvo da música: ao sair, a música e as faixas são apagadas =================
+// ================= Minhas músicas: guardar no celular (opcional, só neste aparelho; nada é enviado) =================
+// Modo "sem voz": guarda o arquivo original + a voz (16 bits); o instrumental é recalculado ao abrir (original − voz).
+// Modo "4 faixas": guarda as 4 faixas (16 bits). Metadados e áudio em lojas separadas, para a lista abrir rápido.
+let guardadaId = null;
+const MDB = () => new Promise((res, rej) => { const r = indexedDB.open("missa-ensaio-musicas", 1); r.onupgradeneeded = () => { r.result.createObjectStore("musicas", { keyPath: "id" }); r.result.createObjectStore("audio"); }; r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); });
+async function mdb(stores, mode, fn) { const db = await MDB(); return new Promise((res, rej) => { const tx = db.transaction(stores, mode); const q = fn(tx); tx.oncomplete = () => res(q && q.result); tx.onerror = () => rej(tx.error); tx.onabort = () => rej(tx.error || new Error("gravação cancelada")); }); }
+const to16 = (f) => { const o = new Int16Array(f.length); for (let i = 0; i < f.length; i++) { const v = f[i] < -1 ? -1 : f[i] > 1 ? 1 : f[i]; o[i] = v * 32767; } return o.buffer; };
+const de16 = (b) => { const a = new Int16Array(b), o = new Float32Array(a.length); for (let i = 0; i < a.length; i++) o[i] = a[i] / 32767; return o; };
+const mbs = (b) => (b / 1e6).toFixed(b < 1e7 ? 1 : 0).replace(".", ",");
+async function guardar() {
+  if (!tracks.length || guardadaId) return;
+  $("btnGuardar").disabled = true; $("btnGuardar").textContent = "Guardando…";
+  try {
+    try { if (navigator.storage && navigator.storage.persist) await navigator.storage.persist(); } catch (e) {}
+    const id = "m" + Date.now().toString(36), comInst = tracks.some(t => t.name === "Instrumental");
+    const audio = { v: 1, faixas: [] };
+    if (comInst) { if (!arquivo) throw new Error("o arquivo original não está mais disponível"); audio.orig = await arquivo.arrayBuffer(); }
+    for (const tk of tracks) if (!(comInst && tk.name === "Instrumental")) audio.faixas.push({ name: tk.name, L: to16(tk.buf.getChannelData(0)), R: to16(tk.buf.getChannelData(1)) });
+    const bytes = (audio.orig ? audio.orig.byteLength : 0) + audio.faixas.reduce((a, f) => a + f.L.byteLength + f.R.byteLength, 0);
+    const meta = { id, nome: nomeArq || song.t || "Música", dur, n: tracks[0].buf.length, bytes, quando: Date.now(), faixas: tracks.map(t => t.name) };
+    if (gerada && song.cifra) Object.assign(meta, { t: song.t, tom: song.tom || "", cifra: song.cifra });
+    await mdb(["musicas", "audio"], "readwrite", tx => { tx.objectStore("audio").put(audio, id); return tx.objectStore("musicas").put(meta); });
+    guardadaId = id; $("btnGuardar").textContent = "Guardada no celular ✓"; $("mixInfo").textContent = mbs(bytes) + " MB neste aparelho";
+    listar();
+  } catch (e) {
+    $("btnGuardar").disabled = false; $("btnGuardar").textContent = "💾 Guardar no celular";
+    alert(/quota/i.test(String(e && (e.name + " " + e.message))) ? "Não há espaço suficiente no aparelho para guardar esta música." : "Não foi possível guardar: " + (e && e.message));
+  }
+}
+$("btnGuardar").onclick = () => guardar();
+async function atualizarCifraGuardada() {
+  if (!guardadaId || !song.cifra) return;
+  try { const m = await mdb("musicas", "readonly", tx => tx.objectStore("musicas").get(guardadaId)); if (!m) return; Object.assign(m, { t: song.t, tom: song.tom || "", cifra: song.cifra }); await mdb("musicas", "readwrite", tx => tx.objectStore("musicas").put(m)); listar(); } catch (e) {}
+}
+async function abrirGuardada(id) {
+  limpar();
+  let meta = null;
+  try { meta = await mdb("musicas", "readonly", tx => tx.objectStore("musicas").get(id)); } catch (e) {}
+  if (!meta) { alert("Não encontrei esta música no aparelho."); listar(); return; }
+  tela("pProc"); cr = cronometro("procRel", "procMsg"); proc("Abrindo " + meta.nome + "…", 0.1, "Música guardada neste aparelho.");
+  try {
+    const audio = await mdb("audio", "readonly", tx => tx.objectStore("audio").get(id));
+    if (!audio) throw new Error("o áudio desta música não está mais no aparelho");
+    if (!ctx) ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const fx = audio.faixas.map(f => ({ name: f.name, L: de16(f.L), R: de16(f.R) }));
+    const n = fx[0].L.length, mk = (l, rr) => { const b = ctx.createBuffer(2, n, SR); b.copyToChannel(l.subarray(0, n), 0); b.copyToChannel(rr.subarray(0, n), 1); return b; };
+    proc("Abrindo " + meta.nome + "…", 0.4, "Montando as faixas.");
+    let inst = null;
+    if (audio.orig) {
+      const { L, R } = await decodificar(audio.orig.slice(0));
+      const v = fx.find(f => f.name === "Voz"), m = Math.min(n, L.length);
+      for (let i = 0; i < m; i++) { L[i] -= v.L[i]; R[i] -= v.R[i]; }
+      inst = { name: "Instrumental", L, R };
+    }
+    tracks = fx.map(f => ({ name: f.name, buf: mk(f.L, f.R), vol: 1 }));
+    if (inst) tracks.push({ name: "Instrumental", buf: mk(inst.L, inst.R), vol: 1 });
+    arquivo = audio.orig ? new File([audio.orig], meta.nome + ".audio") : null;
+    nomeArq = meta.nome; guardadaId = id; dur = n / SR;
+    if (meta.cifra) { song = { ...song, t: meta.t || meta.nome, tom: meta.tom || "", cifra: meta.cifra, n: doApp ? song.n : null }; gerada = true; steps = 0; renderCifra(); }
+    montarMixer(null);
+  } catch (e) { tela("pEscolher"); alert("Não foi possível abrir: " + e.message); }
+  finally { if (cr) { cr.parar(); cr = null; } }
+}
+async function apagarGuardada(id, nome) {
+  if (!confirm("Apagar \"" + nome + "\" deste aparelho? (a cifra salva no app não é afetada)")) return;
+  try { await mdb(["musicas", "audio"], "readwrite", tx => { tx.objectStore("audio").delete(id); return tx.objectStore("musicas").delete(id); }); } catch (e) { alert("Não foi possível apagar: " + e.message); }
+  if (guardadaId === id) { guardadaId = null; $("btnGuardar").disabled = false; $("btnGuardar").textContent = "💾 Guardar no celular"; }
+  listar();
+}
+async function listar() {
+  let itens = [];
+  try { itens = (await mdb("musicas", "readonly", tx => tx.objectStore("musicas").getAll())) || []; } catch (e) {}
+  if (!itens.length) { $("lista").innerHTML = ""; return; }
+  itens.sort((a, b) => b.quando - a.quando);
+  const tot = itens.reduce((a, m) => a + (m.bytes || 0), 0);
+  $("lista").innerHTML = "<div class='sep'></div><div class='lin' style='justify-content:space-between'><b style='color:var(--gold);font-size:14px'>Minhas músicas</b><span class='mut'>" + itens.length + " · " + mbs(tot) + " MB neste aparelho</span></div>" +
+    itens.map(m => "<div class='lin item'><div class='nm'><b>" + esc(m.nome) + "</b><span class='mut'>" + fmt(m.dur) + " · " + mbs(m.bytes || 0) + " MB" + (m.cifra ? " · com cifra" : "") + ((m.faixas || []).length > 2 ? " · 4 faixas" : "") + "</span></div><button class='pri' data-abrir='" + esc(m.id) + "'>Abrir</button><button data-apagar='" + esc(m.id) + "' aria-label='Apagar " + esc(m.nome) + "'>🗑</button></div>").join("") +
+    "<p class='mut' style='margin:6px 0 0'>Ficam só neste aparelho. No iPhone, use o app pela Tela de Início: o Safari pode apagar dados de sites sem uso há 7 dias.</p>";
+  $("lista").querySelectorAll("[data-abrir]").forEach(b => b.onclick = () => abrirGuardada(b.dataset.abrir));
+  $("lista").querySelectorAll("[data-apagar]").forEach(b => b.onclick = () => { const m = itens.find(x => x.id === b.dataset.apagar); apagarGuardada(b.dataset.apagar, m ? m.nome : "esta música"); });
+}
+listar();
+
+// ================= Sem "Guardar", nada fica da música: ao sair, a música e as faixas são apagadas da memória =================
 function limpar() { try { parar(false); } catch (e) {} tracks = []; $("tracks").innerHTML = ""; if (letraM) { letraM.fechar(); letraM = null; } }
 window.addEventListener("pagehide", limpar);
 // Autoteste (só no endereço local de teste, ?autoteste=1): separa a faixa de teste e manda o andamento ao servidor local
@@ -458,7 +552,7 @@ if (QS.get("autoteste") === "1" && location.hostname === "127.0.0.1") {
   const reg = (m) => fetch("__registro?" + encodeURIComponent(m)).catch(() => {});
   let ult = "";
   const obs = new MutationObserver(() => { const t = $("procTit").textContent + " | " + $("gTit").textContent; if (t !== ult) { ult = t; reg(t); } }); obs.observe($("painel"), { subtree: true, childList: true, characterData: true });
-  const fim = new MutationObserver(() => { if (!$("pMix").classList.contains("esconde")) { reg("PRONTO " + JSON.stringify(window.__ensaio.estado()) + " " + $("mixInfo").textContent); fim.disconnect(); if (QS.get("cifra") === "1") gerarCifra(false).then(() => reg("CIFRA " + JSON.stringify(window.__cifraGerada))); } }); fim.observe($("pMix"), { attributes: true });
+  const fim = new MutationObserver(() => { if (!$("pMix").classList.contains("esconde")) { reg("PRONTO " + JSON.stringify(window.__ensaio.estado()) + " " + $("mixInfo").textContent); fim.disconnect(); if (QS.get("guardar") === "1") window.__ensaio.testeGuardar().then(x => reg("GUARDAR " + JSON.stringify(x))); else if (QS.get("cifra") === "1") gerarCifra(false).then(() => reg("CIFRA " + JSON.stringify(window.__cifraGerada))); } }); fim.observe($("pMix"), { attributes: true });
   window.addEventListener("error", (e) => reg("ERRO " + e.message));
   window.alert = (m) => { reg("ALERTA " + m); };
   const nomeT = /^[a-z0-9_-]+\.mp3$/i.test(QS.get("arq") || "") ? QS.get("arq") : "teste-cc0.mp3";
@@ -470,7 +564,17 @@ if (QS.get("autoteste") === "1" && location.hostname === "127.0.0.1") {
     else window.__ensaio.separar(b, nomeT, QS.get("m") || "voz");
   });
 }
-window.__ensaio = { separar: (blob, nome, modo) => { if (modo) $("modo").value = modo; const f = new File([blob], nome || "teste.mp3"); escolher(f); return separar(f); }, estado: () => ({ faixas: tracks.map(t => t.name), dur, painel: [...document.querySelectorAll("#painel > div")].filter(d => !d.classList.contains("esconde")).map(d => d.id) }) };
+window.__ensaio = {
+  // guarda, reabre e compara as faixas (diferença máxima esperada ~1/32767 por causa dos 16 bits)
+  testeGuardar: async () => {
+    const antes = tracks.map(t => [t.name, t.buf.getChannelData(0).slice()]);
+    await guardar(); const id = guardadaId; if (!id) return { erro: "não guardou" };
+    const t1 = performance.now(); await abrirGuardada(id); const ms = Math.round(performance.now() - t1);
+    const dif = antes.map(([nm, a]) => { const tk = tracks.find(t => t.name === nm); if (!tk) return [nm, "faltou"]; const b = tk.buf.getChannelData(0); let mx = 0; for (let i = 0; i < a.length; i += 7) mx = Math.max(mx, Math.abs(a[i] - b[i])); return [nm, mx.toFixed(5)]; });
+    const lista = document.querySelectorAll("#lista .item").length;
+    return { id, abrirMs: ms, dif, itensNaLista: lista, info: $("mixInfo").textContent, botao: $("btnGuardar").textContent };
+  },
+  separar: (blob, nome, modo) => { if (modo) $("modo").value = modo; const f = new File([blob], nome || "teste.mp3"); escolher(f); return separar(f); }, estado: () => ({ faixas: tracks.map(t => t.name), dur, painel: [...document.querySelectorAll("#painel > div")].filter(d => !d.classList.contains("esconde")).map(d => d.id) }) };
 </script>
 </body>
 </html>
